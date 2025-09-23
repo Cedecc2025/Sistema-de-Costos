@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión Financiera para Negocios</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="loading">✓ Datos guardados</div>
+    
+    <div class="container">
+        <!-- Header Principal -->
+        <div class="card">
+            <div class="header">
+                <div>
+                    <h1>
+                        <svg class="icon" style="width: 40px; height: 40px; stroke: #667eea;">
+                            <rect x="4" y="2" width="16" height="20" rx="2"/>
+                            <path d="M8 7h8M8 12h8M8 17h6"/>
+                        </svg>
+                        Sistema de Gestión Financiera
+                    </h1>
+                    <p class="subtitle">Gestiona costos, calcula punto de equilibrio y controla tu flujo de caja</p>
+                </div>
+                
+                <div style="display: flex; gap: 10px;">
+                    <div class="dropdown">
+                        <button class="btn btn-secondary" onclick="toggleDropdown('dataMenu')">
+                            📊 Datos ▼
+                        </button>
+                        <div id="dataMenu" class="dropdown-content">
+                            <h3 style="margin-bottom: 15px;">Gestión de Datos</h3>
+                            <button class="btn btn-success" style="width: 100%; margin-bottom: 10px;" onclick="exportarDatos()">
+                                💾 Exportar JSON
+                            </button>
+                            <label class="btn" style="width: 100%; margin-bottom: 10px; cursor: pointer;">
+                                📁 Importar JSON
+                                <input type="file" accept=".json" onchange="importarDatos(event)" style="display: none;">
+                            </label>
+                            <button class="btn btn-danger" style="width: 100%;" onclick="limpiarDatos()">
+                                🗑️ Limpiar Todo
+                            </button>
+                        </div>
+                    </div>
+                    <div class="dropdown">
+                        <button class="btn" onclick="toggleDropdown('currencyMenu')">
+                            <span id="monedaActual">₡ CRC</span> ▼
+                        </button>
+                        <div id="currencyMenu" class="dropdown-content">
+                            <h3 style="margin-bottom: 15px;">Configuración de Moneda</h3>
+                            <div class="form-group">
+                                <label>Moneda Principal</label>
+                                <select id="selectMoneda" onchange="cambiarMoneda()">
+                                    <option value="CRC">₡ Colones (CRC)</option>
+                                    <option value="USD">$ Dólares (USD)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Tasa de Cambio</label>
+                                <input type="number" id="tasaCambio" value="520" onchange="actualizarTasaCambio()">
+                                <p style="font-size: 12px; color: #718096; margin-top: 5px;">₡1 = $<span id="tasaDolar">0.0019</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs de Navegación -->
+        <div class="card">
+            <div class="tabs">
+                <button class="tab active" onclick="cambiarTab('productos', this)">
+                    📦 Productos/Servicios
+                </button>
+                <button class="tab" onclick="cambiarTab('costos', this)">
+                    📋 Costos Fijos
+                </button>
+                <button class="tab" onclick="cambiarTab('flujo', this)">
+                    💰 Flujo de Caja
+                </button>
+                <button class="tab" onclick="cambiarTab('analisis', this)">
+                    📈 Análisis y Punto de Equilibrio
+                </button>
+            </div>
+
+            <!-- Tab de Productos -->
+            <div id="tab-productos" class="tab-content active">
+                <h2 style="color: #2d3748; margin-bottom: 20px;">Productos y Servicios</h2>
+                
+                <div style="background: linear-gradient(135deg, #f0f4ff 0%, #e9ecef 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
+                    <h3 style="color: #4a5568; margin-bottom: 20px;">Agregar Producto/Servicio</h3>
+                    <div class="form-row">
+                        <div>
+                            <label>Nombre</label>
+                            <input type="text" id="prod-nombre" placeholder="Ej: Café Premium">
+                        </div>
+                        <div>
+                            <label>Tipo</label>
+                            <select id="prod-tipo">
+                                <option value="producto">Producto</option>
+                                <option value="servicio">Servicio</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Moneda</label>
+                            <select id="prod-moneda">
+                                <option value="CRC">₡ CRC</option>
+                                <option value="USD">$ USD</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Costo Unitario</label>
+                            <input type="number" id="prod-costo" placeholder="0.00">
+                        </div>
+                        <div>
+                            <label>Precio de Venta</label>
+                            <input type="number" id="prod-precio" placeholder="0.00">
+                        </div>
+                        <div>
+                            <label>Unidades Vendidas</label>
+                            <input type="number" id="prod-unidades" placeholder="0">
+                        </div>
+                    </div>
+                    <button class="btn" onclick="agregarProducto()">
+                        ➕ Agregar Producto
+                    </button>
+                </div>
+                
+                <div id="lista-productos"></div>
+            </div>
+
+            <!-- Tab de Costos Fijos -->
+            <div id="tab-costos" class="tab-content">
+                <h2 style="color: #2d3748; margin-bottom: 20px;">Costos Fijos</h2>
+                
+                <div style="background: linear-gradient(135deg, #fff5f5 0%, #ffe0e0 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
+                    <h3 style="color: #4a5568; margin-bottom: 20px;">Agregar Costo Fijo</h3>
+                    <div class="form-row">
+                        <div>
+                            <label>Concepto</label>
+                            <input type="text" id="costo-concepto" placeholder="Ej: Alquiler">
+                        </div>
+                        <div>
+                            <label>Moneda</label>
+                            <select id="costo-moneda">
+                                <option value="CRC">₡ CRC</option>
+                                <option value="USD">$ USD</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Monto</label>
+                            <input type="number" id="costo-monto" placeholder="0.00">
+                        </div>
+                        <div>
+                            <label>Frecuencia</label>
+                            <select id="costo-frecuencia">
+                                <option value="mensual">Mensual</option>
+                                <option value="anual">Anual</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn" style="background: linear-gradient(135deg, #f56565 0%, #ed8936 100%);" onclick="agregarCostoFijo()">
+                        ➕ Agregar Costo Fijo
+                    </button>
+                </div>
+                
+                <div class="metric-card" style="max-width: 400px; margin: 0 auto 30px;">
+                    <p class="metric-label">Total Costos Fijos Mensuales</p>
+                    <p class="metric-value" id="total-costos-fijos">₡0</p>
+                </div>
+                
+                <div id="lista-costos"></div>
+            </div>
+
+            <!-- Tab de Flujo de Caja -->
+            <div id="tab-flujo" class="tab-content">
+                <h2 style="color: #2d3748; margin-bottom: 20px;">Flujo de Caja</h2>
+                
+                <div style="background: linear-gradient(135deg, #f0fff4 0%, #dcfce7 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
+                    <h3 style="color: #4a5568; margin-bottom: 20px;">Registrar Transacción</h3>
+                    <div class="form-row">
+                        <div>
+                            <label>Fecha</label>
+                            <input type="date" id="trans-fecha">
+                        </div>
+                        <div>
+                            <label>Tipo</label>
+                            <select id="trans-tipo" onchange="actualizarCategorias()">
+                                <option value="ingreso">Ingreso</option>
+                                <option value="egreso">Egreso</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Concepto</label>
+                            <input type="text" id="trans-concepto" placeholder="Descripción">
+                        </div>
+                        <div>
+                            <label>Moneda</label>
+                            <select id="trans-moneda">
+                                <option value="CRC">₡ CRC</option>
+                                <option value="USD">$ USD</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Monto</label>
+                            <input type="number" id="trans-monto" placeholder="0.00">
+                        </div>
+                        <div>
+                            <label>Categoría</label>
+                            <select id="trans-categoria">
+                                <option value="venta">Venta</option>
+                                <option value="servicio">Servicio</option>
+                                <option value="otro">Otro</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn btn-success" onclick="agregarTransaccion()">
+                        ➕ Agregar Transacción
+                    </button>
+                </div>
+                
+                <div class="form-group">
+                    <label>Seleccionar Mes</label>
+                    <input type="month" id="mes-seleccionado" onchange="actualizarFlujoCaja()" style="max-width: 200px;">
+                </div>
+                
+                <div class="grid">
+                    <div class="metric-card" style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);">
+                        <p class="metric-label">Ingresos</p>
+                        <p class="metric-value" id="flujo-ingresos">₡0</p>
+                    </div>
+                    <div class="metric-card" style="background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);">
+                        <p class="metric-label">Egresos</p>
+                        <p class="metric-value" id="flujo-egresos">₡0</p>
+                    </div>
+                    <div class="metric-card" id="saldo-card">
+                        <p class="metric-label">Saldo</p>
+                        <p class="metric-value" id="flujo-saldo">₡0</p>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="flujoChart"></canvas>
+                </div>
+                
+                <div id="lista-transacciones"></div>
+            </div>
+
+            <!-- Tab de Análisis -->
+            <div id="tab-analisis" class="tab-content">
+                <h2 style="color: #2d3748; margin-bottom: 20px;">Análisis y Punto de Equilibrio</h2>
+                
+                <div class="grid">
+                    <div class="metric-card">
+                        <p class="metric-label">Unidades para Equilibrio</p>
+                        <p class="metric-value" id="pe-unidades">0</p>
+                    </div>
+                    <div class="metric-card">
+                        <p class="metric-label">Ventas para Equilibrio</p>
+                        <p class="metric-value" id="pe-ventas">₡0</p>
+                    </div>
+                    <div class="metric-card" id="pe-estado-card">
+                        <p class="metric-label">Estado Actual</p>
+                        <p class="metric-value" id="pe-estado">₡0</p>
+                    </div>
+                    <div class="metric-card" style="background: linear-gradient(135deg, #805ad5 0%, #553c9a 100%);">
+                        <p class="metric-label">Margen Promedio</p>
+                        <p class="metric-value" id="margen-promedio">0%</p>
+                    </div>
+                </div>
+                
+                <div class="grid" style="margin-top: 30px;">
+                    <div>
+                        <h3 style="color: #4a5568; margin-bottom: 15px;">Margen por Producto</h3>
+                        <div class="chart-container">
+                            <canvas id="margenChart"></canvas>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 style="color: #4a5568; margin-bottom: 15px;">Análisis de Equilibrio</h3>
+                        <div class="chart-container">
+                            <canvas id="equilibrioChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <h3 style="color: #4a5568; margin-bottom: 15px;">Recomendaciones</h3>
+                    <div id="recomendaciones"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
