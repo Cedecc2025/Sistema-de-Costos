@@ -144,11 +144,24 @@ function crearClienteSupabaseMock() {
                         return builder;
                     },
                     delete() {
-                        return {
-                            eq() {
-                                return this;
+                        const contexto = { filtros: {} };
+                        const resultado = Promise.resolve({ data: null, error: null, contexto });
+                        const builder = {
+                            eq(columna, valor) {
+                                contexto.filtros[columna] = valor;
+                                return builder;
+                            },
+                            then(onFulfilled, onRejected) {
+                                return resultado.then(onFulfilled, onRejected);
+                            },
+                            catch(onRejected) {
+                                return resultado.catch(onRejected);
+                            },
+                            finally(onFinally) {
+                                return resultado.finally(onFinally);
                             }
                         };
+                        return builder;
                     }
                 };
             }

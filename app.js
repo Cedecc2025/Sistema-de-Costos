@@ -116,6 +116,7 @@ let usuarioActual = null;
 
 let productoEditandoId = null;
 let productoEditandoOriginal = null;
+let productoConfirmandoEliminarId = null;
 
 // Configuración de monedas
 const monedas = {
@@ -540,6 +541,7 @@ function prepararEdicionProducto(id) {
         return;
     }
 
+    productoConfirmandoEliminarId = null;
     productoEditandoId = id;
     productoEditandoOriginal = { ...producto };
 
@@ -596,6 +598,7 @@ function prepararEdicionProducto(id) {
 function cancelarEdicionProducto() {
     productoEditandoId = null;
     productoEditandoOriginal = null;
+    productoConfirmandoEliminarId = null;
 
     const nombreInput = document.getElementById('prod-nombre');
     const costoInput = document.getElementById('prod-costo');
@@ -616,43 +619,62 @@ function cancelarEdicionProducto() {
     actualizarListaProductos();
 }
 
-async function eliminarProducto(id) {
-    if (!confirm('¿Estás seguro de eliminar este producto?')) {
-        return;
+function mostrarAdvertenciaEliminarProducto(id) {
+    if (productoConfirmandoEliminarId === id) {
+        productoConfirmandoEliminarId = null;
+    } else {
+        productoConfirmandoEliminarId = id;
     }
+    actualizarListaProductos();
+}
 
+function cancelarEliminacionProducto() {
+    if (productoConfirmandoEliminarId !== null) {
+        productoConfirmandoEliminarId = null;
+        actualizarListaProductos();
+    }
+}
+
+function confirmarEliminacionProducto(id) {
+    eliminarProducto(id);
+}
+
+async function eliminarProducto(id) {
     const indiceProducto = state.productos.findIndex(p => p.id === id);
     const productoEliminado = indiceProducto >= 0 ? state.productos[indiceProducto] : null;
-    state.productos = state.productos.filter(p => p.id !== id);
-    actualizarVistas();
-    guardarDatos();
-
-    const cliente = obtenerClienteSupabase();
-    if (!cliente || !usuarioActual || !usuarioActual.id || !productoEliminado) {
+    if (!productoEliminado) {
         return;
     }
 
-    try {
-        const { error } = await cliente
-            .from('productos')
-            .delete()
-            .eq('id', id)
-            .eq('usuario_id', usuarioActual.id);
+    const cliente = obtenerClienteSupabase();
+    const puedeSincronizar = cliente && usuarioActual && usuarioActual.id;
 
-        if (error) {
-            throw error;
+    if (puedeSincronizar) {
+        try {
+            const { error } = await cliente
+                .from('productos')
+                .delete()
+                .eq('id', id)
+                .eq('usuario_id', usuarioActual.id);
+
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error al eliminar producto en Supabase:', error);
+            alert('No se pudo eliminar el producto de la base de datos. Intenta nuevamente.');
+            return;
         }
-    } catch (error) {
-        console.error('Error al eliminar producto en Supabase:', error);
-        alert('No se pudo eliminar el producto de la base de datos. Se restaurará en la lista.');
-        if (indiceProducto >= 0 && productoEliminado) {
-            state.productos.splice(indiceProducto, 0, productoEliminado);
-        } else if (productoEliminado) {
-            state.productos.push(productoEliminado);
-        }
-        actualizarVistas();
-        guardarDatos();
     }
+
+    if (productoEditandoId === id) {
+        cancelarEdicionProducto();
+    }
+
+    productoConfirmandoEliminarId = null;
+    state.productos.splice(indiceProducto, 1);
+    actualizarVistas();
+    guardarDatos();
 }
 
 // CRUD Costos Fijos
@@ -804,6 +826,13 @@ function actualizarListaProductos() {
         return;
     }
 
+    if (productoConfirmandoEliminarId !== null) {
+        const existe = state.productos.some(p => p.id === productoConfirmandoEliminarId);
+        if (!existe) {
+            productoConfirmandoEliminarId = null;
+        }
+    }
+
     if (state.productos.length === 0) {
         lista.innerHTML = `
             <div class="empty-state">
@@ -823,9 +852,15 @@ function actualizarListaProductos() {
         const margen = calcularMargenContribucion(producto);
         const margenPorcentaje = calcularMargenPorcentaje(producto);
         const editando = productoEditandoId === producto.id;
+        const confirmandoEliminacion = productoConfirmandoEliminarId === producto.id;
+        const clasesTarjeta = [
+            'product-card',
+            editando ? 'editing' : '',
+            confirmandoEliminacion ? 'confirming-delete' : ''
+        ].filter(Boolean).join(' ');
 
         return `
-            <div class="product-card${editando ? ' editing' : ''}">
+            <div class="${clasesTarjeta}">
                 <div style="display: flex; justify-content: space-between; align-items: start;">
                     <div style="flex: 1;">
                         <div style="margin-bottom: 10px;">
@@ -860,11 +895,23 @@ function actualizarListaProductos() {
                         <button class="edit-btn" onclick="prepararEdicionProducto(${producto.id})" title="Editar producto">
                             ✏️
                         </button>
-                        <button class="delete-btn" onclick="eliminarProducto(${producto.id})">
+                        <button class="delete-btn" onclick="mostrarAdvertenciaEliminarProducto(${producto.id})" title="Eliminar producto">
                             🗑️
                         </button>
                     </div>
                 </div>
+                ${confirmandoEliminacion ? `
+                    <div class="delete-warning">
+                        <div class="warning-content">
+                            <span class="warning-icon">⚠️</span>
+                            <span class="warning-text">¿Deseas eliminar este registro? Esta acción no se puede deshacer.</span>
+                        </div>
+                        <div class="warning-actions">
+                            <button class="cancel-delete-btn" type="button" onclick="cancelarEliminacionProducto()">Cancelar</button>
+                            <button class="confirm-delete-btn" type="button" onclick="confirmarEliminacionProducto(${producto.id})">Eliminar</button>
+                        </div>
+                    </div>
+                ` : ''}
             </div>
         `;
     }).join('');
