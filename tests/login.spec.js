@@ -16,6 +16,10 @@ const html = `<!DOCTYPE html>
                 <label for="loginUsuario">Usuario</label>
                 <input type="text" id="loginUsuario" autocomplete="username" required>
             </div>
+            <div class="login-group">
+                <label for="loginPassword">Contraseña</label>
+                <input type="password" id="loginPassword" autocomplete="current-password" required>
+            </div>
             <p id="loginError" class="login-error" role="alert"></p>
             <button type="submit">Ingresar</button>
         </form>
@@ -62,7 +66,7 @@ function crearClienteSupabaseMock() {
                                 limit() {
                                     const coincide = valor.trim().toLowerCase() === 'admin';
                                     return Promise.resolve({
-                                        data: coincide ? [{ id: 1, username: 'admin' }] : [],
+                                        data: coincide ? [{ id: 1, username: 'admin', password: 'supersecreto' }] : [],
                                         error: null
                                     });
                                 }
@@ -99,6 +103,7 @@ async function main() {
     const mainContainer = window.document.querySelector('.container');
     const loginForm = window.document.getElementById('loginForm');
     const loginUsuario = window.document.getElementById('loginUsuario');
+    const loginPassword = window.document.getElementById('loginPassword');
     const loginError = window.document.getElementById('loginError');
     const submitButton = loginForm.querySelector('button[type="submit"]');
     const logoutButton = window.document.getElementById('logoutButton');
@@ -106,8 +111,18 @@ async function main() {
 
     assert(loginContainer && !loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse tras iniciar.');
     assert(mainContainer && mainContainer.classList.contains('hidden'), 'El dashboard debe permanecer oculto inicialmente.');
+    assert(loginPassword, 'Debe existir un campo para la contraseña.');
+
+    loginUsuario.value = 'admin';
+    loginPassword.value = '';
+    loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    assert.strictEqual(window.sessionStorage.getItem('usuarioAutenticado'), null, 'No debe iniciar sesión si falta la contraseña.');
+    assert(!submitButton.disabled, 'El botón debe reactivarse tras validar credenciales incompletas.');
 
     loginUsuario.value = 'usuario';
+    loginPassword.value = 'supersecreto';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 5));
 
@@ -117,6 +132,16 @@ async function main() {
     assert(mainContainer.classList.contains('hidden'), 'El dashboard debe seguir oculto tras fallo.');
 
     loginUsuario.value = 'admin';
+    loginPassword.value = 'incorrecta';
+    loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    assert.strictEqual(window.sessionStorage.getItem('usuarioAutenticado'), null, 'No debe guardarse sesión con contraseña inválida.');
+    assert(loginError.textContent.includes('Usuario no autorizado'), 'Debe mostrar error de contraseña inválida.');
+    assert.strictEqual(loginPassword.value, '', 'La contraseña debe limpiarse tras un fallo.');
+
+    loginUsuario.value = 'admin';
+    loginPassword.value = 'supersecreto';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 5));
 
@@ -135,6 +160,7 @@ async function main() {
     assert(!loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse nuevamente tras cerrar sesión.');
     assert(mainContainer.classList.contains('hidden'), 'El dashboard debe ocultarse tras cerrar sesión.');
     assert.strictEqual(loginUsuario.value, '', 'El campo de usuario debe reiniciarse tras cerrar sesión.');
+    assert.strictEqual(loginPassword.value, '', 'El campo de contraseña debe reiniciarse tras cerrar sesión.');
 }
 
 main().then(() => {

@@ -12,7 +12,7 @@ function obtenerClienteSupabase() {
     return supabaseClient;
 }
 
-async function buscarUsuarioEnSupabase(username) {
+async function buscarUsuarioEnSupabase(username, password) {
     const cliente = obtenerClienteSupabase();
     if (!cliente) {
         throw new Error('Supabase no está disponible');
@@ -21,7 +21,7 @@ async function buscarUsuarioEnSupabase(username) {
     const patron = username.replace(/[\%_]/g, '\\$&');
     const { data, error } = await cliente
         .from('usuarios')
-        .select('id, username')
+        .select('id, username, password')
         .ilike('username', patron)
         .limit(1);
 
@@ -29,7 +29,21 @@ async function buscarUsuarioEnSupabase(username) {
         throw error;
     }
 
-    return Array.isArray(data) ? data[0] : null;
+    const usuario = Array.isArray(data) ? data[0] : null;
+
+    if (!usuario) {
+        return null;
+    }
+
+    if (typeof usuario.password !== 'string') {
+        return null;
+    }
+
+    if (usuario.password !== password) {
+        return null;
+    }
+
+    return { id: usuario.id, username: usuario.username };
 }
 
 // Estado Global
@@ -85,6 +99,7 @@ function configurarAutenticacion() {
     const loginForm = document.getElementById('loginForm');
     const loginError = document.getElementById('loginError');
     const loginUsuario = document.getElementById('loginUsuario');
+    const loginPassword = document.getElementById('loginPassword');
     const loginSubmit = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
     const logoutButton = document.getElementById('logoutButton');
 
@@ -152,14 +167,20 @@ function configurarAutenticacion() {
         event.preventDefault();
 
         const usuario = loginUsuario ? loginUsuario.value.trim() : '';
+        const password = loginPassword ? loginPassword.value : '';
 
         if (loginError) {
             loginError.textContent = '';
         }
 
-        if (!usuario) {
+        if (!usuario || !password) {
             if (loginError) {
-                loginError.textContent = 'Por favor, ingresa tu usuario.';
+                loginError.textContent = 'Por favor, ingresa tu usuario y contraseña.';
+            }
+            if (!usuario && loginUsuario) {
+                loginUsuario.focus();
+            } else if (!password && loginPassword) {
+                loginPassword.focus();
             }
             return;
         }
@@ -171,11 +192,20 @@ function configurarAutenticacion() {
         }
 
         try {
-            const usuarioEncontrado = await buscarUsuarioEnSupabase(usuario);
+            const usuarioEncontrado = await buscarUsuarioEnSupabase(usuario, password);
 
             if (!usuarioEncontrado) {
                 if (loginError) {
                     loginError.textContent = 'Usuario no autorizado. Verifica tus credenciales.';
+                }
+                if (loginPassword) {
+                    loginPassword.value = '';
+                }
+                if (loginPassword) {
+                    loginPassword.focus();
+                    if (typeof loginPassword.select === 'function') {
+                        loginPassword.select();
+                    }
                 }
                 return;
             }
