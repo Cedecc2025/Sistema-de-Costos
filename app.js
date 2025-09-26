@@ -100,13 +100,17 @@ async function sincronizarProductosDesdeSupabase() {
 }
 
 // Estado Global
-let state = {
-    productos: [],
-    costosFijos: [],
-    transacciones: [],
-    moneda: 'CRC',
-    tasaCambio: 520
-};
+function crearEstadoInicial() {
+    return {
+        productos: [],
+        costosFijos: [],
+        transacciones: [],
+        moneda: 'CRC',
+        tasaCambio: 520
+    };
+}
+
+let state = crearEstadoInicial();
 
 let usuarioActual = null;
 
@@ -115,6 +119,13 @@ const monedas = {
     CRC: { simbolo: '₡', nombre: 'Colones', decimales: 0 },
     USD: { simbolo: '$', nombre: 'Dólares', decimales: 2 }
 };
+
+function obtenerClaveAlmacenamiento(usuario = usuarioActual) {
+    if (usuario && usuario.id !== undefined && usuario.id !== null && usuario.id !== '') {
+        return `sistemaFinanciero:${usuario.id}`;
+    }
+    return 'sistemaFinanciero';
+}
 
 // Charts globales
 let flujoChart, margenChart, equilibrioChart;
@@ -185,6 +196,9 @@ function configurarAutenticacion() {
         if (usuario.username) {
             sessionStorage.setItem('usuarioNombre', usuario.username);
         }
+        state = crearEstadoInicial();
+        cargarDatos();
+        actualizarVistas();
         if (loginError) {
             loginError.textContent = '';
         }
@@ -202,6 +216,33 @@ function configurarAutenticacion() {
             ['usuarioAutenticado', 'usuarioId', 'usuarioNombre'].forEach((clave) => {
                 sessionStorage.removeItem(clave);
             });
+            if (flujoChart && typeof flujoChart.destroy === 'function') {
+                flujoChart.destroy();
+            }
+            if (margenChart && typeof margenChart.destroy === 'function') {
+                margenChart.destroy();
+            }
+            if (equilibrioChart && typeof equilibrioChart.destroy === 'function') {
+                equilibrioChart.destroy();
+            }
+            flujoChart = null;
+            margenChart = null;
+            equilibrioChart = null;
+            appInicializada = false;
+            state = crearEstadoInicial();
+            const selectorMoneda = document.getElementById('selectMoneda');
+            if (selectorMoneda) {
+                selectorMoneda.value = state.moneda;
+            }
+            const etiquetaMoneda = document.getElementById('monedaActual');
+            if (etiquetaMoneda) {
+                etiquetaMoneda.textContent = `${monedas[state.moneda].simbolo} ${state.moneda}`;
+            }
+            const tasaCambioInput = document.getElementById('tasaCambio');
+            if (tasaCambioInput) {
+                tasaCambioInput.value = state.tasaCambio;
+            }
+            actualizarVistas();
             usuarioActual = null;
             mostrarFormularioLogin();
         });
@@ -1020,7 +1061,8 @@ function actualizarGraficoEquilibrio() {
 // Gestión de Datos
 function guardarDatos() {
     try {
-        localStorage.setItem('sistemaFinanciero', JSON.stringify(state));
+        const clave = obtenerClaveAlmacenamiento();
+        localStorage.setItem(clave, JSON.stringify(state));
 
         const loading = document.getElementById('loading');
         if (loading) {
@@ -1036,15 +1078,36 @@ function guardarDatos() {
 
 function cargarDatos() {
     try {
-        const datos = localStorage.getItem('sistemaFinanciero');
+        const clave = obtenerClaveAlmacenamiento();
+        const datos = localStorage.getItem(clave);
+        const estadoBase = crearEstadoInicial();
         if (datos) {
-            state = JSON.parse(datos);
-            document.getElementById('selectMoneda').value = state.moneda;
-            document.getElementById('monedaActual').textContent = `${monedas[state.moneda].simbolo} ${state.moneda}`;
-            document.getElementById('tasaCambio').value = state.tasaCambio;
+            const recuperado = JSON.parse(datos);
+            state = {
+                ...estadoBase,
+                ...recuperado,
+                productos: Array.isArray(recuperado.productos) ? recuperado.productos : estadoBase.productos,
+                costosFijos: Array.isArray(recuperado.costosFijos) ? recuperado.costosFijos : estadoBase.costosFijos,
+                transacciones: Array.isArray(recuperado.transacciones) ? recuperado.transacciones : estadoBase.transacciones
+            };
+        } else {
+            state = estadoBase;
+        }
+        const selectorMoneda = document.getElementById('selectMoneda');
+        if (selectorMoneda) {
+            selectorMoneda.value = state.moneda;
+        }
+        const etiquetaMoneda = document.getElementById('monedaActual');
+        if (etiquetaMoneda) {
+            etiquetaMoneda.textContent = `${monedas[state.moneda].simbolo} ${state.moneda}`;
+        }
+        const tasaCambioInput = document.getElementById('tasaCambio');
+        if (tasaCambioInput) {
+            tasaCambioInput.value = state.tasaCambio;
         }
     } catch (e) {
         console.error('Error al cargar:', e);
+        state = crearEstadoInicial();
     }
 }
 
