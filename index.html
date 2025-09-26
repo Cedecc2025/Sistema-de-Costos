@@ -166,7 +166,7 @@
                 <h2 style="color: #2d3748; margin-bottom: 20px;">Costos Fijos</h2>
                 
                 <div style="background: linear-gradient(135deg, #fff5f5 0%, #ffe0e0 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
-                    <h3 style="color: #4a5568; margin-bottom: 20px;">Agregar Costo Fijo</h3>
+                    <h3 id="costo-form-title" style="color: #4a5568; margin-bottom: 20px;">Agregar Costo Fijo</h3>
                     <div class="form-row">
                         <div>
                             <label>Concepto</label>
@@ -191,11 +191,16 @@
                             </select>
                         </div>
                     </div>
-                    <button class="btn" style="background: linear-gradient(135deg, #f56565 0%, #ed8936 100%);" onclick="agregarCostoFijo()">
-                        ➕ Agregar Costo Fijo
-                    </button>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <button id="costo-submit" class="btn btn-cost" type="button" onclick="agregarCostoFijo()">
+                            ➕ Agregar Costo Fijo
+                        </button>
+                        <button id="costo-cancelar" class="btn btn-secondary" type="button" onclick="cancelarEdicionCostoFijo()" style="display: none;">
+                            ✖️ Cancelar edición
+                        </button>
+                    </div>
                 </div>
-                
+
                 <div class="metric-card" style="max-width: 400px; margin: 0 auto 30px;">
                     <p class="metric-label">Total Costos Fijos Mensuales</p>
                     <p class="metric-value" id="total-costos-fijos">₡0</p>

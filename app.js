@@ -65,6 +65,24 @@ function mapearProductoDeSupabase(fila) {
     };
 }
 
+function mapearCostoFijoDeSupabase(fila) {
+    if (!fila) return null;
+
+    const parseNumero = (valor) => {
+        if (valor === null || valor === undefined || valor === '') return 0;
+        const numero = typeof valor === 'number' ? valor : parseFloat(valor);
+        return Number.isNaN(numero) ? 0 : numero;
+    };
+
+    return {
+        id: fila.id,
+        concepto: fila.concepto,
+        moneda: fila.moneda,
+        monto: parseNumero(fila.monto),
+        frecuencia: fila.frecuencia
+    };
+}
+
 async function sincronizarProductosDesdeSupabase() {
     if (!usuarioActual || !usuarioActual.id) return;
 
@@ -99,6 +117,40 @@ async function sincronizarProductosDesdeSupabase() {
     }
 }
 
+async function sincronizarCostosFijosDesdeSupabase() {
+    if (!usuarioActual || !usuarioActual.id) return;
+
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) return;
+
+    try {
+        const { data, error } = await cliente
+            .from('costos_fijos')
+            .select('id, concepto, moneda, monto, frecuencia, created_at')
+            .eq('usuario_id', usuarioActual.id)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            throw error;
+        }
+
+        if (Array.isArray(data)) {
+            const costosRemotos = data
+                .map(mapearCostoFijoDeSupabase)
+                .filter(Boolean);
+            const costosLocales = Array.isArray(state.costosFijos) ? state.costosFijos : [];
+            const idsRemotos = new Set(costosRemotos.map(c => c.id));
+            const costosNoSincronizados = costosLocales.filter(c => !idsRemotos.has(c.id));
+
+            state.costosFijos = [...costosRemotos, ...costosNoSincronizados];
+            actualizarVistas();
+            guardarDatos();
+        }
+    } catch (error) {
+        console.error('Error al cargar costos fijos desde Supabase:', error);
+    }
+}
+
 // Estado Global
 function crearEstadoInicial() {
     return {
@@ -117,6 +169,9 @@ let usuarioActual = null;
 let productoEditandoId = null;
 let productoEditandoOriginal = null;
 let productoConfirmandoEliminarId = null;
+let costoFijoEditandoId = null;
+let costoFijoEditandoOriginal = null;
+let costoFijoConfirmandoEliminarId = null;
 
 // Configuración de monedas
 const monedas = {
@@ -202,6 +257,7 @@ function configurarAutenticacion() {
         }
         state = crearEstadoInicial();
         cancelarEdicionProducto();
+        cancelarEdicionCostoFijo();
         cargarDatos();
         actualizarVistas();
         if (loginError) {
@@ -214,6 +270,7 @@ function configurarAutenticacion() {
         }
         inicializarAplicacion();
         sincronizarProductosDesdeSupabase();
+        sincronizarCostosFijosDesdeSupabase();
     };
 
     if (logoutButton) {
@@ -248,6 +305,7 @@ function configurarAutenticacion() {
                 tasaCambioInput.value = state.tasaCambio;
             }
             cancelarEdicionProducto();
+            cancelarEdicionCostoFijo();
             actualizarVistas();
             usuarioActual = null;
             mostrarFormularioLogin();
@@ -678,37 +736,278 @@ async function eliminarProducto(id) {
 }
 
 // CRUD Costos Fijos
-function agregarCostoFijo() {
-    const concepto = document.getElementById('costo-concepto').value;
-    const moneda = document.getElementById('costo-moneda').value;
-    const monto = parseFloat(document.getElementById('costo-monto').value) || 0;
-    const frecuencia = document.getElementById('costo-frecuencia').value;
-    
-    if (concepto && monto > 0) {
-        state.costosFijos.push({
-            id: Date.now(),
+async function agregarCostoFijo() {
+    const conceptoInput = document.getElementById('costo-concepto');
+    const monedaSelect = document.getElementById('costo-moneda');
+    const montoInput = document.getElementById('costo-monto');
+    const frecuenciaSelect = document.getElementById('costo-frecuencia');
+
+    const concepto = conceptoInput ? conceptoInput.value.trim() : '';
+    const moneda = monedaSelect ? monedaSelect.value : 'CRC';
+    const monto = montoInput ? parseFloat(montoInput.value) || 0 : 0;
+    const frecuencia = frecuenciaSelect ? frecuenciaSelect.value : 'mensual';
+
+    if (!concepto || monto <= 0) {
+        alert('Por favor completa todos los campos requeridos');
+        if (!concepto && conceptoInput) {
+            conceptoInput.focus();
+        } else if (monto <= 0 && montoInput) {
+            montoInput.focus();
+        }
+        return;
+    }
+
+    if (costoFijoEditandoId !== null) {
+        const indice = state.costosFijos.findIndex(c => c.id === costoFijoEditandoId);
+        if (indice === -1) {
+            alert('No se encontró el costo fijo que intentas editar.');
+            cancelarEdicionCostoFijo();
+            return;
+        }
+
+        const costoAnterior = costoFijoEditandoOriginal
+            ? { ...costoFijoEditandoOriginal }
+            : { ...state.costosFijos[indice] };
+
+        let costoActualizado = {
+            ...state.costosFijos[indice],
             concepto,
             moneda,
             monto,
             frecuencia
-        });
-        
-        document.getElementById('costo-concepto').value = '';
-        document.getElementById('costo-monto').value = '';
-        
+        };
+
+        state.costosFijos[indice] = costoActualizado;
         actualizarVistas();
         guardarDatos();
+
+        const cliente = obtenerClienteSupabase();
+        if (cliente && usuarioActual && usuarioActual.id) {
+            try {
+                const { data, error } = await cliente
+                    .from('costos_fijos')
+                    .update({
+                        concepto,
+                        moneda,
+                        monto,
+                        frecuencia
+                    })
+                    .eq('id', costoFijoEditandoId)
+                    .eq('usuario_id', usuarioActual.id)
+                    .select('id, concepto, moneda, monto, frecuencia')
+                    .single();
+
+                if (error) {
+                    throw error;
+                }
+
+                const costoSupabase = mapearCostoFijoDeSupabase(data);
+                if (costoSupabase) {
+                    costoActualizado = costoSupabase;
+                    state.costosFijos[indice] = costoSupabase;
+                }
+            } catch (error) {
+                console.error('Error al actualizar costo fijo en Supabase:', error);
+                state.costosFijos[indice] = costoAnterior;
+                costoFijoEditandoOriginal = { ...costoAnterior };
+                actualizarVistas();
+                guardarDatos();
+                alert('No se pudo actualizar el costo fijo en la base de datos. Intenta nuevamente.');
+                return;
+            }
+        } else if (usuarioActual && usuarioActual.id) {
+            alert('No se pudo conectar con la base de datos. Los cambios se guardaron localmente.');
+        }
+
+        cancelarEdicionCostoFijo();
+        actualizarVistas();
+        guardarDatos();
+        return;
+    }
+
+    let costoParaEstado = {
+        id: Date.now(),
+        concepto,
+        moneda,
+        monto,
+        frecuencia
+    };
+
+    const cliente = obtenerClienteSupabase();
+    if (cliente && usuarioActual && usuarioActual.id) {
+        try {
+            const { data, error } = await cliente
+                .from('costos_fijos')
+                .insert([
+                    {
+                        usuario_id: usuarioActual.id,
+                        concepto,
+                        moneda,
+                        monto,
+                        frecuencia
+                    }
+                ])
+                .select('id, concepto, moneda, monto, frecuencia')
+                .single();
+
+            if (error) {
+                throw error;
+            }
+
+            const costoSupabase = mapearCostoFijoDeSupabase(data);
+            if (costoSupabase) {
+                costoParaEstado = costoSupabase;
+            }
+        } catch (error) {
+            console.error('Error al guardar costo fijo en Supabase:', error);
+            alert('El costo fijo se guardó localmente pero no en la base de datos. Intenta nuevamente cuando tengas conexión.');
+        }
+    } else if (usuarioActual && usuarioActual.id) {
+        alert('No se pudo conectar con la base de datos. El costo fijo se guardará localmente.');
+    }
+
+    state.costosFijos.push(costoParaEstado);
+
+    if (conceptoInput) conceptoInput.value = '';
+    if (montoInput) montoInput.value = '';
+    if (monedaSelect) monedaSelect.value = 'CRC';
+    if (frecuenciaSelect) frecuenciaSelect.value = 'mensual';
+
+    costoFijoConfirmandoEliminarId = null;
+
+    actualizarVistas();
+    guardarDatos();
+}
+
+function prepararEdicionCostoFijo(id) {
+    const costo = state.costosFijos.find(c => c.id === id);
+    if (!costo) {
+        return;
+    }
+
+    costoFijoConfirmandoEliminarId = null;
+    costoFijoEditandoId = id;
+    costoFijoEditandoOriginal = { ...costo };
+
+    const conceptoInput = document.getElementById('costo-concepto');
+    const monedaSelect = document.getElementById('costo-moneda');
+    const montoInput = document.getElementById('costo-monto');
+    const frecuenciaSelect = document.getElementById('costo-frecuencia');
+    const titulo = document.getElementById('costo-form-title');
+    const submitBtn = document.getElementById('costo-submit');
+    const cancelarBtn = document.getElementById('costo-cancelar');
+
+    if (conceptoInput) {
+        conceptoInput.value = costo.concepto ?? '';
+        setTimeout(() => {
+            conceptoInput.focus();
+            if (typeof conceptoInput.select === 'function') {
+                conceptoInput.select();
+            }
+        }, 0);
+    }
+    if (monedaSelect && costo.moneda) {
+        monedaSelect.value = costo.moneda;
+    }
+    if (montoInput) {
+        montoInput.value = costo.monto ?? '';
+    }
+    if (frecuenciaSelect && costo.frecuencia) {
+        frecuenciaSelect.value = costo.frecuencia;
+    }
+    if (titulo) {
+        titulo.textContent = 'Editar Costo Fijo';
+    }
+    if (submitBtn) {
+        submitBtn.textContent = '💾 Guardar Cambios';
+    }
+    if (cancelarBtn) {
+        cancelarBtn.style.display = 'inline-flex';
+    }
+
+    actualizarListaCostos();
+}
+
+function cancelarEdicionCostoFijo() {
+    costoFijoEditandoId = null;
+    costoFijoEditandoOriginal = null;
+    costoFijoConfirmandoEliminarId = null;
+
+    const conceptoInput = document.getElementById('costo-concepto');
+    const monedaSelect = document.getElementById('costo-moneda');
+    const montoInput = document.getElementById('costo-monto');
+    const frecuenciaSelect = document.getElementById('costo-frecuencia');
+    const titulo = document.getElementById('costo-form-title');
+    const submitBtn = document.getElementById('costo-submit');
+    const cancelarBtn = document.getElementById('costo-cancelar');
+
+    if (conceptoInput) conceptoInput.value = '';
+    if (monedaSelect) monedaSelect.value = 'CRC';
+    if (montoInput) montoInput.value = '';
+    if (frecuenciaSelect) frecuenciaSelect.value = 'mensual';
+    if (titulo) titulo.textContent = 'Agregar Costo Fijo';
+    if (submitBtn) submitBtn.textContent = '➕ Agregar Costo Fijo';
+    if (cancelarBtn) cancelarBtn.style.display = 'none';
+
+    actualizarListaCostos();
+}
+
+function mostrarAdvertenciaEliminarCostoFijo(id) {
+    if (costoFijoConfirmandoEliminarId === id) {
+        costoFijoConfirmandoEliminarId = null;
     } else {
-        alert('Por favor completa todos los campos requeridos');
+        costoFijoConfirmandoEliminarId = id;
+    }
+    actualizarListaCostos();
+}
+
+function cancelarEliminacionCostoFijo() {
+    if (costoFijoConfirmandoEliminarId !== null) {
+        costoFijoConfirmandoEliminarId = null;
+        actualizarListaCostos();
     }
 }
 
-function eliminarCostoFijo(id) {
-    if (confirm('¿Estás seguro de eliminar este costo fijo?')) {
-        state.costosFijos = state.costosFijos.filter(c => c.id !== id);
-        actualizarVistas();
-        guardarDatos();
+function confirmarEliminacionCostoFijo(id) {
+    eliminarCostoFijo(id);
+}
+
+async function eliminarCostoFijo(id) {
+    const indice = state.costosFijos.findIndex(c => c.id === id);
+    if (indice === -1) {
+        return;
     }
+
+    const cliente = obtenerClienteSupabase();
+    const puedeSincronizar = cliente && usuarioActual && usuarioActual.id;
+
+    if (puedeSincronizar) {
+        try {
+            const { error } = await cliente
+                .from('costos_fijos')
+                .delete()
+                .eq('id', id)
+                .eq('usuario_id', usuarioActual.id);
+
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error al eliminar costo fijo en Supabase:', error);
+            alert('No se pudo eliminar el costo fijo de la base de datos. Intenta nuevamente.');
+            return;
+        }
+    }
+
+    if (costoFijoEditandoId === id) {
+        cancelarEdicionCostoFijo();
+    } else {
+        costoFijoConfirmandoEliminarId = null;
+    }
+
+    state.costosFijos.splice(indice, 1);
+    actualizarVistas();
+    guardarDatos();
 }
 
 // CRUD Transacciones
@@ -921,10 +1220,22 @@ function actualizarListaProductos() {
 
 function actualizarListaCostos() {
     const lista = document.getElementById('lista-costos');
-    const total = calcularCostosFijosTotales();
-    
-    document.getElementById('total-costos-fijos').textContent = formatearMoneda(total);
-    
+    if (!lista) {
+        return;
+    }
+
+    const totalElemento = document.getElementById('total-costos-fijos');
+    if (totalElemento) {
+        totalElemento.textContent = formatearMoneda(calcularCostosFijosTotales());
+    }
+
+    if (costoFijoConfirmandoEliminarId !== null) {
+        const existe = state.costosFijos.some(c => c.id === costoFijoConfirmandoEliminarId);
+        if (!existe) {
+            costoFijoConfirmandoEliminarId = null;
+        }
+    }
+
     if (state.costosFijos.length === 0) {
         lista.innerHTML = `
             <div class="empty-state">
@@ -938,35 +1249,63 @@ function actualizarListaCostos() {
         `;
         return;
     }
-    
-    lista.innerHTML = state.costosFijos.map(costo => `
-        <div class="cost-card">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="flex: 1;">
-                    <div style="margin-bottom: 10px;">
-                        <span style="font-size: 18px; font-weight: 600; color: #2d3748;">${costo.concepto}</span>
-                        <span class="badge badge-purple">${monedas[costo.moneda].simbolo} ${costo.moneda}</span>
-                        <span class="badge badge-blue">${costo.frecuencia}</span>
-                    </div>
-                    <div style="display: flex; gap: 30px;">
-                        <div>
-                            <span class="info-label">Monto:</span>
-                            <span class="info-value">${formatearMoneda(costo.monto, costo.moneda)}</span>
+
+    lista.innerHTML = state.costosFijos.map(costo => {
+        const editando = costoFijoEditandoId === costo.id;
+        const confirmando = costoFijoConfirmandoEliminarId === costo.id;
+        const clasesTarjeta = [
+            'cost-card',
+            editando ? 'editing' : '',
+            confirmando ? 'confirming-delete' : ''
+        ].filter(Boolean).join(' ');
+        const montoMensual = costo.frecuencia === 'anual' ? costo.monto / 12 : costo.monto;
+
+        return `
+            <div class="${clasesTarjeta}">
+                <div class="product-card-header">
+                    <div class="product-card-main">
+                        <div class="product-card-title">
+                            <span class="product-name">${costo.concepto}</span>
+                            <span class="badge badge-purple">${monedas[costo.moneda].simbolo} ${costo.moneda}</span>
+                            <span class="badge badge-blue">${costo.frecuencia}</span>
                         </div>
-                        ${costo.frecuencia === 'anual' ? `
+                        <div class="product-metrics-grid">
                             <div>
-                                <span class="info-label">Mensual:</span>
-                                <span class="info-value" style="color: #48bb78;">${formatearMoneda(costo.monto / 12, costo.moneda)}</span>
+                                <span class="info-label">${costo.frecuencia === 'anual' ? 'Monto anual' : 'Monto mensual'}</span>
+                                <p class="info-value">${formatearMoneda(costo.monto, costo.moneda)}</p>
                             </div>
-                        ` : ''}
+                            <div>
+                                <span class="info-label">Monto mensual</span>
+                                <p class="info-value ${costo.frecuencia === 'anual' ? 'info-value--highlight' : ''}">${formatearMoneda(montoMensual, costo.moneda)}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="product-actions">
+                        <button class="product-action-btn edit-btn" type="button" onclick="prepararEdicionCostoFijo(${costo.id})">
+                            <span class="product-action-icon">✏️</span>
+                            <span>Editar</span>
+                        </button>
+                        <button class="product-action-btn delete-btn" type="button" onclick="mostrarAdvertenciaEliminarCostoFijo(${costo.id})">
+                            <span class="product-action-icon">🗑️</span>
+                            <span>Eliminar</span>
+                        </button>
                     </div>
                 </div>
-                <button class="delete-btn" onclick="eliminarCostoFijo(${costo.id})">
-                    🗑️
-                </button>
+                ${confirmando ? `
+                    <div class="delete-warning">
+                        <div class="warning-content">
+                            <span class="warning-icon">⚠️</span>
+                            <span class="warning-text">¿Deseas eliminar este registro? Esta acción no se puede deshacer.</span>
+                        </div>
+                        <div class="warning-actions">
+                            <button class="cancel-delete-btn" type="button" onclick="cancelarEliminacionCostoFijo()">Cancelar</button>
+                            <button class="confirm-delete-btn" type="button" onclick="confirmarEliminacionCostoFijo(${costo.id})">Eliminar</button>
+                        </div>
+                    </div>
+                ` : ''}
             </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 function actualizarListaTransacciones() {

@@ -166,6 +166,90 @@ function crearClienteSupabaseMock() {
                 };
             }
 
+            if (tabla === 'costos_fijos') {
+                return {
+                    select() {
+                        return {
+                            eq() {
+                                return {
+                                    order() {
+                                        return Promise.resolve({ data: [], error: null });
+                                    }
+                                };
+                            }
+                        };
+                    },
+                    insert() {
+                        return {
+                            select() {
+                                return {
+                                    single() {
+                                        return Promise.resolve({
+                                            data: {
+                                                id: 101,
+                                                concepto: 'Renta',
+                                                moneda: 'CRC',
+                                                monto: 1000,
+                                                frecuencia: 'mensual'
+                                            },
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                    },
+                    update(payload = {}) {
+                        const contexto = { payload, id: null };
+                        const builder = {
+                            eq(columna, valor) {
+                                if (columna === 'id') {
+                                    contexto.id = valor;
+                                }
+                                return builder;
+                            },
+                            select() {
+                                return {
+                                    single() {
+                                        return Promise.resolve({
+                                            data: {
+                                                id: contexto.id ?? 101,
+                                                concepto: payload.concepto ?? 'Renta',
+                                                moneda: payload.moneda ?? 'CRC',
+                                                monto: payload.monto ?? 1000,
+                                                frecuencia: payload.frecuencia ?? 'mensual'
+                                            },
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                        return builder;
+                    },
+                    delete() {
+                        const contexto = { filtros: {} };
+                        const resultado = Promise.resolve({ data: null, error: null, contexto });
+                        const builder = {
+                            eq(columna, valor) {
+                                contexto.filtros[columna] = valor;
+                                return builder;
+                            },
+                            then(onFulfilled, onRejected) {
+                                return resultado.then(onFulfilled, onRejected);
+                            },
+                            catch(onRejected) {
+                                return resultado.catch(onRejected);
+                            },
+                            finally(onFinally) {
+                                return resultado.finally(onFinally);
+                            }
+                        };
+                        return builder;
+                    }
+                };
+            }
+
             return {
                 select() {
                     return {

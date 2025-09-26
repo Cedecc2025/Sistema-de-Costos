@@ -173,6 +173,10 @@ h1 {
     background: linear-gradient(135deg, #f56565 0%, #ed8936 100%);
 }
 
+.btn-cost {
+    background: linear-gradient(135deg, #f56565 0%, #ed8936 100%);
+}
+
 .btn-success {
     background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
 }
@@ -348,12 +352,14 @@ input:focus, select:focus {
     line-height: 1;
 }
 
-.product-card.editing {
+.product-card.editing,
+.cost-card.editing {
     border-color: #fbbf24;
     box-shadow: 0 10px 25px rgba(251, 191, 36, 0.3);
 }
 
-.product-card.confirming-delete {
+.product-card.confirming-delete,
+.cost-card.confirming-delete {
     border-color: #f87171;
     box-shadow: 0 10px 25px rgba(248, 113, 113, 0.25);
 }
