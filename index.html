@@ -21,7 +21,7 @@
                 <label for="loginUsuario">Usuario</label>
                 <input type="text" id="loginUsuario" placeholder="admin" autocomplete="username" required>
             </div>
-            <p class="login-hint">Ingresa el usuario <strong>admin</strong> para acceder.</p>
+            <p class="login-hint">El usuario debe existir en Supabase (por defecto <strong>admin</strong>).</p>
             <p id="loginError" class="login-error" role="alert" aria-live="polite"></p>
             <button type="submit" class="btn btn-login">Ingresar</button>
         </form>
@@ -313,6 +313,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>
 </body>
 </html>

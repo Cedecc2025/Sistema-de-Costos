@@ -49,6 +49,37 @@ window.Chart = function() {
     };
 };
 
+function crearClienteSupabaseMock() {
+    return {
+        from() {
+            return {
+                select() {
+                    return {
+                        ilike(_columna, valor) {
+                            return {
+                                limit() {
+                                    const coincide = valor.trim().toLowerCase() === 'admin';
+                                    return Promise.resolve({
+                                        data: coincide ? [{ id: 1, username: 'admin' }] : [],
+                                        error: null
+                                    });
+                                }
+                            };
+                        }
+                    };
+                }
+            };
+        }
+    };
+}
+
+const supabaseMock = {
+    createClient: () => crearClienteSupabaseMock()
+};
+
+window.supabase = supabaseMock;
+global.supabase = supabaseMock;
+
 const scriptContent = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
 const vm = require('vm');
 const script = new vm.Script(scriptContent);
@@ -74,18 +105,20 @@ async function main() {
 
     loginUsuario.value = 'usuario';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
-    await new Promise(resolve => setTimeout(resolve, 250));
+    await new Promise(resolve => setTimeout(resolve, 5));
 
     assert.strictEqual(window.sessionStorage.getItem('usuarioAutenticado'), null, 'No debe guardarse sesión con usuario inválido.');
-    assert(loginError.textContent.includes('Usuario no válido'), 'Debe mostrar error de usuario inválido.');
+    assert(loginError.textContent.includes('Usuario no autorizado'), 'Debe mostrar error de usuario inválido.');
     assert(!submitButton.disabled, 'El botón debe reactivarse tras fallo.');
     assert(mainContainer.classList.contains('hidden'), 'El dashboard debe seguir oculto tras fallo.');
 
     loginUsuario.value = 'admin';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
-    await new Promise(resolve => setTimeout(resolve, 250));
+    await new Promise(resolve => setTimeout(resolve, 5));
 
     assert(window.sessionStorage.getItem('usuarioAutenticado') === 'true', 'Debe guardarse la sesión tras login correcto.');
+    assert.strictEqual(window.sessionStorage.getItem('usuarioNombre'), 'admin', 'Debe persistir el nombre de usuario.');
+    assert.strictEqual(window.sessionStorage.getItem('usuarioId'), '1', 'Debe guardar el id del usuario.');
     assert(loginContainer.classList.contains('hidden'), 'El formulario debe ocultarse tras login correcto.');
     assert(!mainContainer.classList.contains('hidden'), 'El dashboard debe mostrarse tras login correcto.');
     assert(inicializada, 'Debe inicializar la aplicación tras login correcto.');

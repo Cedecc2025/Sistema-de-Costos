@@ -1,3 +1,37 @@
+// Credenciales Supabase
+const SUPABASE_URL = 'https://jsjwgjaprgymeonsadny.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzandnamFwcmd5bWVvbnNhZG55Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MzY5NjQsImV4cCI6MjA3NDIxMjk2NH0.4fjXkdOCyaubZuVIZNeViaA6MfdDK-4pdH9h-Ty2bfk';
+
+let supabaseClient = null;
+
+function obtenerClienteSupabase() {
+    if (supabaseClient) return supabaseClient;
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+    return supabaseClient;
+}
+
+async function buscarUsuarioEnSupabase(username) {
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) {
+        throw new Error('Supabase no está disponible');
+    }
+
+    const patron = username.replace(/[\%_]/g, '\\$&');
+    const { data, error } = await cliente
+        .from('usuarios')
+        .select('id, username')
+        .ilike('username', patron)
+        .limit(1);
+
+    if (error) {
+        throw error;
+    }
+
+    return Array.isArray(data) ? data[0] : null;
+}
+
 // Estado Global
 let state = {
     productos: [],
@@ -70,6 +104,12 @@ function configurarAutenticacion() {
         if (!usuario) return;
         usuarioActual = usuario;
         sessionStorage.setItem('usuarioAutenticado', 'true');
+        if (usuario.id) {
+            sessionStorage.setItem('usuarioId', String(usuario.id));
+        }
+        if (usuario.username) {
+            sessionStorage.setItem('usuarioNombre', usuario.username);
+        }
         if (loginError) {
             loginError.textContent = '';
         }
@@ -83,13 +123,15 @@ function configurarAutenticacion() {
 
     const sesionPersistida = sessionStorage.getItem('usuarioAutenticado') === 'true';
     if (sesionPersistida) {
-        manejarSesionActiva({ username: 'admin' });
+        const usernamePersistido = sessionStorage.getItem('usuarioNombre') || 'admin';
+        const idPersistido = sessionStorage.getItem('usuarioId');
+        manejarSesionActiva({ username: usernamePersistido, id: idPersistido ? parseInt(idPersistido, 10) : undefined });
         return;
     }
 
     mostrarFormularioLogin();
 
-    loginForm.addEventListener('submit', (event) => {
+    loginForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
         const usuario = loginUsuario ? loginUsuario.value.trim() : '';
@@ -108,28 +150,31 @@ function configurarAutenticacion() {
         const botonOriginal = loginSubmit ? loginSubmit.textContent : '';
         if (loginSubmit) {
             loginSubmit.disabled = true;
-            loginSubmit.textContent = 'Ingresando...';
+            loginSubmit.textContent = 'Verificando...';
         }
 
-        setTimeout(() => {
-            if (usuario.toLowerCase() !== 'admin') {
+        try {
+            const usuarioEncontrado = await buscarUsuarioEnSupabase(usuario);
+
+            if (!usuarioEncontrado) {
                 if (loginError) {
-                    loginError.textContent = 'Usuario no válido. Usa "admin" para acceder.';
-                }
-                if (loginSubmit) {
-                    loginSubmit.disabled = false;
-                    loginSubmit.textContent = botonOriginal || 'Ingresar';
+                    loginError.textContent = 'Usuario no autorizado. Verifica tus credenciales.';
                 }
                 return;
             }
 
-            manejarSesionActiva({ username: usuario });
-
+            manejarSesionActiva({ username: usuarioEncontrado.username, id: usuarioEncontrado.id });
+        } catch (error) {
+            console.error('Error al verificar usuario en Supabase:', error);
+            if (loginError) {
+                loginError.textContent = 'No se pudo validar el usuario en Supabase. Intenta nuevamente en unos minutos.';
+            }
+        } finally {
             if (loginSubmit) {
                 loginSubmit.disabled = false;
                 loginSubmit.textContent = botonOriginal || 'Ingresar';
             }
-        }, 200);
+        }
     });
 }
 
