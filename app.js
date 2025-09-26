@@ -15,16 +15,86 @@ const monedas = {
 
 // Charts globales
 let flujoChart, margenChart, equilibrioChart;
+let appInicializada = false;
 
 // Inicialización
 window.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('trans-fecha').value = new Date().toISOString().split('T')[0];
-    document.getElementById('mes-seleccionado').value = new Date().toISOString().slice(0, 7);
-    
+    configurarAutenticacion();
+});
+
+function inicializarAplicacion() {
+    if (appInicializada) return;
+
+    const fechaTransaccion = document.getElementById('trans-fecha');
+    const mesSeleccionado = document.getElementById('mes-seleccionado');
+
+    if (fechaTransaccion) {
+        fechaTransaccion.value = new Date().toISOString().split('T')[0];
+    }
+
+    if (mesSeleccionado) {
+        mesSeleccionado.value = new Date().toISOString().slice(0, 7);
+    }
+
     cargarDatos();
     inicializarGraficos();
     actualizarVistas();
-});
+
+    appInicializada = true;
+}
+
+function configurarAutenticacion() {
+    const loginContainer = document.getElementById('loginContainer');
+    const mainContainer = document.querySelector('.container');
+    const loginForm = document.getElementById('loginForm');
+    const loginError = document.getElementById('loginError');
+    const loginUsuario = document.getElementById('loginUsuario');
+
+    if (!loginContainer || !mainContainer || !loginForm) return;
+
+    const estaAutenticado = sessionStorage.getItem('usuarioAutenticado') === 'true';
+
+    if (estaAutenticado) {
+        loginContainer.classList.add('hidden');
+        mainContainer.classList.remove('hidden');
+        inicializarAplicacion();
+    } else {
+        loginContainer.classList.remove('hidden');
+        mainContainer.classList.add('hidden');
+        if (loginUsuario) {
+            setTimeout(() => loginUsuario.focus(), 50);
+        }
+    }
+
+    loginForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        const usuario = document.getElementById('loginUsuario').value.trim();
+        const contrasena = document.getElementById('loginPassword').value.trim();
+
+        if (!usuario || !contrasena) {
+            if (loginError) {
+                loginError.textContent = 'Por favor, completa tus credenciales.';
+            }
+            return;
+        }
+
+        if (usuario.toLowerCase() === 'admin@empresa.com' && contrasena === 'admin123') {
+            sessionStorage.setItem('usuarioAutenticado', 'true');
+            if (loginError) {
+                loginError.textContent = '';
+            }
+            loginForm.reset();
+            loginContainer.classList.add('hidden');
+            mainContainer.classList.remove('hidden');
+            inicializarAplicacion();
+        } else {
+            if (loginError) {
+                loginError.textContent = 'Credenciales incorrectas. Inténtalo nuevamente.';
+            }
+        }
+    });
+}
 
 // Funciones de UI
 function toggleDropdown(id) {
