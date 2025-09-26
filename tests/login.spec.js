@@ -57,18 +57,79 @@ window.Chart = function() {
 
 function crearClienteSupabaseMock() {
     return {
-        from() {
+        from(tabla) {
+            if (tabla === 'usuarios') {
+                return {
+                    select() {
+                        return {
+                            ilike(_columna, valor) {
+                                return {
+                                    limit() {
+                                        const coincide = valor.trim().toLowerCase() === 'admin';
+                                        return Promise.resolve({
+                                            data: coincide ? [{ id: 1, username: 'admin', password: 'supersecreto' }] : [],
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                    }
+                };
+            }
+
+            if (tabla === 'productos') {
+                return {
+                    select() {
+                        return {
+                            eq() {
+                                return {
+                                    order() {
+                                        return Promise.resolve({ data: [], error: null });
+                                    }
+                                };
+                            }
+                        };
+                    },
+                    insert() {
+                        return {
+                            select() {
+                                return {
+                                    single() {
+                                        return Promise.resolve({
+                                            data: {
+                                                id: 99,
+                                                nombre: 'Mock',
+                                                tipo: 'producto',
+                                                moneda: 'CRC',
+                                                costo_unitario: 0,
+                                                precio_venta: 0,
+                                                unidades_vendidas: 0
+                                            },
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                    },
+                    delete() {
+                        return {
+                            eq() {
+                                return this;
+                            }
+                        };
+                    }
+                };
+            }
+
             return {
                 select() {
                     return {
-                        ilike(_columna, valor) {
+                        eq() {
                             return {
-                                limit() {
-                                    const coincide = valor.trim().toLowerCase() === 'admin';
-                                    return Promise.resolve({
-                                        data: coincide ? [{ id: 1, username: 'admin', password: 'supersecreto' }] : [],
-                                        error: null
-                                    });
+                                order() {
+                                    return Promise.resolve({ data: [], error: null });
                                 }
                             };
                         }

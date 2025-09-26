@@ -46,6 +46,59 @@ async function buscarUsuarioEnSupabase(username, password) {
     return { id: usuario.id, username: usuario.username };
 }
 
+function mapearProductoDeSupabase(fila) {
+    if (!fila) return null;
+    const parseNumero = (valor) => {
+        if (valor === null || valor === undefined || valor === '') return 0;
+        const numero = typeof valor === 'number' ? valor : parseFloat(valor);
+        return Number.isNaN(numero) ? 0 : numero;
+    };
+
+    return {
+        id: fila.id,
+        nombre: fila.nombre,
+        tipo: fila.tipo,
+        moneda: fila.moneda,
+        costoUnitario: parseNumero(fila.costo_unitario ?? fila.costoUnitario),
+        precioVenta: parseNumero(fila.precio_venta ?? fila.precioVenta),
+        unidadesVendidas: parseNumero(fila.unidades_vendidas ?? fila.unidadesVendidas)
+    };
+}
+
+async function sincronizarProductosDesdeSupabase() {
+    if (!usuarioActual || !usuarioActual.id) return;
+
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) return;
+
+    try {
+        const { data, error } = await cliente
+            .from('productos')
+            .select('id, nombre, tipo, moneda, costo_unitario, precio_venta, unidades_vendidas')
+            .eq('usuario_id', usuarioActual.id)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            throw error;
+        }
+
+        if (Array.isArray(data)) {
+            const productosRemotos = data
+                .map(mapearProductoDeSupabase)
+                .filter(Boolean);
+            const productosLocales = Array.isArray(state.productos) ? state.productos : [];
+            const idsRemotos = new Set(productosRemotos.map(p => p.id));
+            const productosNoSincronizados = productosLocales.filter(p => !idsRemotos.has(p.id));
+
+            state.productos = [...productosRemotos, ...productosNoSincronizados];
+            actualizarVistas();
+            guardarDatos();
+        }
+    } catch (error) {
+        console.error('Error al cargar productos desde Supabase:', error);
+    }
+}
+
 // Estado Global
 let state = {
     productos: [],
@@ -141,6 +194,7 @@ function configurarAutenticacion() {
             loginForm.reset();
         }
         inicializarAplicacion();
+        sincronizarProductosDesdeSupabase();
     };
 
     if (logoutButton) {
@@ -293,16 +347,16 @@ function actualizarTasaCambio() {
 }
 
 // CRUD Productos
-function agregarProducto() {
+async function agregarProducto() {
     const nombre = document.getElementById('prod-nombre').value;
     const tipo = document.getElementById('prod-tipo').value;
     const moneda = document.getElementById('prod-moneda').value;
     const costo = parseFloat(document.getElementById('prod-costo').value) || 0;
     const precio = parseFloat(document.getElementById('prod-precio').value) || 0;
     const unidades = parseInt(document.getElementById('prod-unidades').value) || 0;
-    
+
     if (nombre && costo > 0 && precio > 0) {
-        state.productos.push({
+        let productoParaEstado = {
             id: Date.now(),
             nombre,
             tipo,
@@ -310,8 +364,43 @@ function agregarProducto() {
             costoUnitario: costo,
             precioVenta: precio,
             unidadesVendidas: unidades
-        });
-        
+        };
+
+        const cliente = obtenerClienteSupabase();
+        if (cliente && usuarioActual && usuarioActual.id) {
+            try {
+                const { data, error } = await cliente
+                    .from('productos')
+                    .insert([{
+                        usuario_id: usuarioActual.id,
+                        nombre,
+                        tipo,
+                        moneda,
+                        costo_unitario: costo,
+                        precio_venta: precio,
+                        unidades_vendidas: unidades
+                    }])
+                    .select('id, nombre, tipo, moneda, costo_unitario, precio_venta, unidades_vendidas')
+                    .single();
+
+                if (error) {
+                    throw error;
+                }
+
+                const productoSupabase = mapearProductoDeSupabase(data);
+                if (productoSupabase) {
+                    productoParaEstado = productoSupabase;
+                }
+            } catch (error) {
+                console.error('Error al guardar producto en Supabase:', error);
+                alert('El producto se guardó localmente pero no en la base de datos. Intenta nuevamente cuando tengas conexión.');
+            }
+        } else if (usuarioActual && usuarioActual.id) {
+            alert('No se pudo conectar con la base de datos. El producto se guardará localmente.');
+        }
+
+        state.productos.push(productoParaEstado);
+
         // Limpiar formulario
         document.getElementById('prod-nombre').value = '';
         document.getElementById('prod-costo').value = '';
@@ -325,9 +414,40 @@ function agregarProducto() {
     }
 }
 
-function eliminarProducto(id) {
-    if (confirm('¿Estás seguro de eliminar este producto?')) {
-        state.productos = state.productos.filter(p => p.id !== id);
+async function eliminarProducto(id) {
+    if (!confirm('¿Estás seguro de eliminar este producto?')) {
+        return;
+    }
+
+    const indiceProducto = state.productos.findIndex(p => p.id === id);
+    const productoEliminado = indiceProducto >= 0 ? state.productos[indiceProducto] : null;
+    state.productos = state.productos.filter(p => p.id !== id);
+    actualizarVistas();
+    guardarDatos();
+
+    const cliente = obtenerClienteSupabase();
+    if (!cliente || !usuarioActual || !usuarioActual.id || !productoEliminado) {
+        return;
+    }
+
+    try {
+        const { error } = await cliente
+            .from('productos')
+            .delete()
+            .eq('id', id)
+            .eq('usuario_id', usuarioActual.id);
+
+        if (error) {
+            throw error;
+        }
+    } catch (error) {
+        console.error('Error al eliminar producto en Supabase:', error);
+        alert('No se pudo eliminar el producto de la base de datos. Se restaurará en la lista.');
+        if (indiceProducto >= 0 && productoEliminado) {
+            state.productos.splice(indiceProducto, 0, productoEliminado);
+        } else if (productoEliminado) {
+            state.productos.push(productoEliminado);
+        }
         actualizarVistas();
         guardarDatos();
     }
@@ -465,6 +585,9 @@ function calcularPuntoEquilibrio() {
 
 // Actualización de Vistas
 function actualizarVistas() {
+    if (!document.getElementById('lista-productos')) {
+        return;
+    }
     actualizarListaProductos();
     actualizarListaCostos();
     actualizarListaTransacciones();
@@ -474,7 +597,11 @@ function actualizarVistas() {
 
 function actualizarListaProductos() {
     const lista = document.getElementById('lista-productos');
-    
+
+    if (!lista) {
+        return;
+    }
+
     if (state.productos.length === 0) {
         lista.innerHTML = `
             <div class="empty-state">
@@ -894,12 +1021,14 @@ function actualizarGraficoEquilibrio() {
 function guardarDatos() {
     try {
         localStorage.setItem('sistemaFinanciero', JSON.stringify(state));
-        
+
         const loading = document.getElementById('loading');
-        loading.style.display = 'block';
-        setTimeout(() => {
-            loading.style.display = 'none';
-        }, 2000);
+        if (loading) {
+            loading.style.display = 'block';
+            setTimeout(() => {
+                loading.style.display = 'none';
+            }, 2000);
+        }
     } catch (e) {
         console.error('Error al guardar:', e);
     }
