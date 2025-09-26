@@ -1,0 +1,11 @@
+{
+  "name": "sistema-de-costos",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test:login": "node tests/login.spec.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}

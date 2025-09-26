@@ -7,11 +7,6 @@ let state = {
     tasaCambio: 520
 };
 
-const SUPABASE_URL = 'https://jsjwgjaprgymeonsadny.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzandnamFwcmd5bWVvbnNhZG55Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MzY5NjQsImV4cCI6MjA3NDIxMjk2NH0.4fjXkdOCyaubZuVIZNeViaA6MfdDK-4pdH9h-Ty2bfk';
-const supabaseClient = typeof window !== 'undefined' && window.supabase
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-    : null;
 let usuarioActual = null;
 
 // Configuración de monedas
@@ -50,24 +45,16 @@ function inicializarAplicacion() {
     appInicializada = true;
 }
 
-async function configurarAutenticacion() {
+function configurarAutenticacion() {
     const loginContainer = document.getElementById('loginContainer');
     const mainContainer = document.querySelector('.container');
     const loginForm = document.getElementById('loginForm');
     const loginError = document.getElementById('loginError');
     const loginUsuario = document.getElementById('loginUsuario');
-    const loginPassword = document.getElementById('loginPassword');
     const loginSubmit = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
 
-    if (!loginContainer || !mainContainer || !loginForm) return;
-
-    if (!supabaseClient) {
-        console.error('Supabase no está disponible. Verifica la carga del SDK.');
-        if (loginError) {
-            loginError.textContent = 'Error de configuración: no se pudo conectar al servicio de autenticación.';
-        }
-        loginContainer.classList.remove('hidden');
-        mainContainer.classList.add('hidden');
+    if (!loginContainer || !mainContainer || !loginForm) {
+        inicializarAplicacion();
         return;
     }
 
@@ -79,9 +66,9 @@ async function configurarAutenticacion() {
         }
     };
 
-    const manejarSesionActiva = async (session) => {
-        if (!session) return;
-        usuarioActual = session.user;
+    const manejarSesionActiva = (usuario) => {
+        if (!usuario) return;
+        usuarioActual = usuario;
         sessionStorage.setItem('usuarioAutenticado', 'true');
         if (loginError) {
             loginError.textContent = '';
@@ -91,52 +78,29 @@ async function configurarAutenticacion() {
         if (loginForm) {
             loginForm.reset();
         }
-        await registrarUsuarioSiNoExiste(usuarioActual);
         inicializarAplicacion();
     };
 
-    const manejarCierreSesion = () => {
-        usuarioActual = null;
-        sessionStorage.removeItem('usuarioAutenticado');
-        mostrarFormularioLogin();
-    };
-
-    try {
-        const { data, error } = await supabaseClient.auth.getSession();
-        if (error) {
-            console.error('Error verificando sesión:', error);
-            mostrarFormularioLogin();
-        } else if (data.session) {
-            await manejarSesionActiva(data.session);
-        } else {
-            mostrarFormularioLogin();
-        }
-    } catch (error) {
-        console.error('No se pudo verificar la sesión inicial:', error);
-        mostrarFormularioLogin();
+    const sesionPersistida = sessionStorage.getItem('usuarioAutenticado') === 'true';
+    if (sesionPersistida) {
+        manejarSesionActiva({ username: 'admin' });
+        return;
     }
 
-    supabaseClient.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_OUT' || !session) {
-            manejarCierreSesion();
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-            manejarSesionActiva(session);
-        }
-    });
+    mostrarFormularioLogin();
 
-    loginForm.addEventListener('submit', async (event) => {
+    loginForm.addEventListener('submit', (event) => {
         event.preventDefault();
 
         const usuario = loginUsuario ? loginUsuario.value.trim() : '';
-        const contrasena = loginPassword ? loginPassword.value.trim() : '';
 
         if (loginError) {
             loginError.textContent = '';
         }
 
-        if (!usuario || !contrasena) {
+        if (!usuario) {
             if (loginError) {
-                loginError.textContent = 'Por favor, completa tus credenciales.';
+                loginError.textContent = 'Por favor, ingresa tu usuario.';
             }
             return;
         }
@@ -147,62 +111,26 @@ async function configurarAutenticacion() {
             loginSubmit.textContent = 'Ingresando...';
         }
 
-        try {
-            const { data, error } = await supabaseClient.auth.signInWithPassword({
-                email: usuario,
-                password: contrasena
-            });
-
-            if (error || !data.session) {
-                console.warn('No se pudo iniciar sesión:', error);
+        setTimeout(() => {
+            if (usuario.toLowerCase() !== 'admin') {
                 if (loginError) {
-                    loginError.textContent = 'Credenciales incorrectas o usuario no registrado.';
+                    loginError.textContent = 'Usuario no válido. Usa "admin" para acceder.';
+                }
+                if (loginSubmit) {
+                    loginSubmit.disabled = false;
+                    loginSubmit.textContent = botonOriginal || 'Ingresar';
                 }
                 return;
             }
 
-            await manejarSesionActiva(data.session);
-        } catch (error) {
-            console.error('Error durante el proceso de login:', error);
-            if (loginError) {
-                loginError.textContent = 'Ocurrió un problema al iniciar sesión. Inténtalo nuevamente más tarde.';
-            }
-        } finally {
+            manejarSesionActiva({ username: usuario });
+
             if (loginSubmit) {
                 loginSubmit.disabled = false;
                 loginSubmit.textContent = botonOriginal || 'Ingresar';
             }
-        }
+        }, 200);
     });
-}
-
-async function registrarUsuarioSiNoExiste(user) {
-    if (!user || !user.email || !supabaseClient) return;
-
-    try {
-        const { data, error } = await supabaseClient
-            .from('usuarios')
-            .select('id')
-            .eq('username', user.email)
-            .maybeSingle();
-
-        if (error && error.code !== 'PGRST116') {
-            console.warn('No se pudo verificar el registro de usuario:', error);
-            return;
-        }
-
-        if (!data) {
-            const { error: insertError } = await supabaseClient
-                .from('usuarios')
-                .insert({ username: user.email });
-
-            if (insertError && insertError.code !== '23505') {
-                console.warn('No se pudo registrar el usuario en la base de datos:', insertError);
-            }
-        }
-    } catch (error) {
-        console.warn('Error inesperado al sincronizar el usuario:', error);
-    }
 }
 
 // Funciones de UI
