@@ -2,6 +2,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
+const vm = require('vm');
+const { attachSupabase, resetSupabaseState } = require('./helpers/supabaseMock');
 
 const html = `<!DOCTYPE html>
 <html lang="es">
@@ -44,6 +46,43 @@ Object.assign(global, {
     confirm: () => true
 });
 
+window.alert = () => {};
+window.confirm = () => true;
+global.alert = window.alert;
+global.confirm = window.confirm;
+
+if (window.HTMLCanvasElement) {
+    window.HTMLCanvasElement.prototype.getContext = () => ({
+        fillRect() {},
+        clearRect() {},
+        getImageData() { return { data: [] }; },
+        putImageData() {},
+        createImageData() { return []; },
+        setTransform() {},
+        drawImage() {},
+        save() {},
+        fillText() {},
+        restore() {},
+        beginPath() {},
+        moveTo() {},
+        lineTo() {},
+        closePath() {},
+        stroke() {},
+        translate() {},
+        scale() {},
+        rotate() {},
+        arc() {},
+        fill() {},
+        measureText() { return { width: 0 }; },
+        transform() {},
+        rect() {},
+        clip() {}
+    });
+}
+
+attachSupabase(window);
+resetSupabaseState();
+
 window.Chart = function() {
     return {
         destroy() {},
@@ -51,114 +90,11 @@ window.Chart = function() {
     };
 };
 
-const productosMock = [];
+window.Chart.defaults = { font: {} };
 
-function crearClienteSupabaseMock() {
-    return {
-        from(tabla) {
-            if (tabla === 'usuarios') {
-                return {
-                    select() {
-                        return {
-                            ilike(_columna, valor) {
-                                return {
-                                    limit() {
-                                        const coincide = valor.trim().toLowerCase() === 'admin';
-                                        return Promise.resolve({
-                                            data: coincide ? [{ id: 1, username: 'admin' }] : [],
-                                            error: null
-                                        });
-                                    }
-                                };
-                            }
-                        };
-                    }
-                };
-            }
-
-            if (tabla === 'productos') {
-                return {
-                    select() {
-                        const builder = {
-                            _data: productosMock.slice(),
-                            eq(_columna, valor) {
-                                builder._data = builder._data.filter(p => p.usuario_id === valor);
-                                return builder;
-                            },
-                            order() {
-                                return Promise.resolve({
-                                    data: builder._data,
-                                    error: null
-                                });
-                            }
-                        };
-                        return builder;
-                    },
-                    insert(registros) {
-                        const creados = registros.map((registro, indice) => {
-                            const nuevo = {
-                                id: productosMock.length + indice + 1,
-                                ...registro
-                            };
-                            productosMock.push(nuevo);
-                            return nuevo;
-                        });
-                        return {
-                            select() {
-                                return {
-                                    single() {
-                                        return Promise.resolve({
-                                            data: creados[0],
-                                            error: null
-                                        });
-                                    }
-                                };
-                            }
-                        };
-                    },
-                    delete() {
-                        const filtros = {};
-                        return {
-                            eq(columna, valor) {
-                                filtros[columna] = valor;
-                                if (filtros.id !== undefined && filtros.usuario_id !== undefined) {
-                                    const indice = productosMock.findIndex(
-                                        p => p.id === filtros.id && p.usuario_id === filtros.usuario_id
-                                    );
-                                    if (indice >= 0) {
-                                        productosMock.splice(indice, 1);
-                                    }
-                                    return Promise.resolve({ data: null, error: null });
-                                }
-                                return this;
-                            }
-                        };
-                    }
-                };
-            }
-
-            return {
-                select() {
-                    return {
-                        eq() {
-                            return Promise.resolve({ data: [], error: null });
-                        }
-                    };
-                }
-            };
-        }
-    };
-}
-
-const supabaseMock = {
-    createClient: () => crearClienteSupabaseMock()
-};
-
-window.supabase = supabaseMock;
-global.supabase = supabaseMock;
+global.Chart = window.Chart;
 
 const scriptContent = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
-const vm = require('vm');
 const script = new vm.Script(scriptContent);
 script.runInContext(dom.getInternalVMContext());
 
@@ -167,7 +103,12 @@ window.inicializarAplicacion = () => {
     inicializada = true;
 };
 
-async function main() {
+aSyncMain().catch(error => {
+    console.error(error);
+    process.exit(1);
+});
+
+async function aSyncMain() {
     window.dispatchEvent(new window.Event('DOMContentLoaded'));
 
     const loginContainer = window.document.getElementById('loginContainer');
@@ -210,11 +151,6 @@ async function main() {
     assert(!loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse nuevamente tras cerrar sesión.');
     assert(mainContainer.classList.contains('hidden'), 'El dashboard debe ocultarse tras cerrar sesión.');
     assert.strictEqual(loginUsuario.value, '', 'El campo de usuario debe reiniciarse tras cerrar sesión.');
-}
 
-main().then(() => {
     console.log('Login tests passed');
-}).catch(error => {
-    console.error(error);
-    process.exit(1);
-});
+}

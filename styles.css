@@ -246,6 +246,14 @@ h1 {
     margin-bottom: 20px;
 }
 
+.form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 15px;
+}
+
 label {
     display: block;
     margin-bottom: 8px;
@@ -420,6 +428,13 @@ input:focus, select:focus {
     stroke-linejoin: round;
 }
 
+.product-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.edit-btn,
 .delete-btn {
     background: #fee2e2;
     color: #991b1b;
@@ -428,6 +443,15 @@ input:focus, select:focus {
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s ease;
+}
+
+.edit-btn {
+    background: #e0f2fe;
+    color: #1d4ed8;
+}
+
+.edit-btn:hover {
+    background: #bfdbfe;
 }
 
 .delete-btn:hover {

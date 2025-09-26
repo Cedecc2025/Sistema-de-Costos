@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test:login": "node tests/login.spec.js"
+    "test:login": "node tests/login.spec.js",
+    "test:productos": "node tests/productos.spec.js",
+    "test": "npm run test:login && npm run test:productos"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"

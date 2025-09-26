@@ -90,6 +90,34 @@ async function crearProductoEnSupabase(producto, usuarioId) {
     return mapearProductoDesdeSupabase(data);
 }
 
+async function actualizarProductoEnSupabase(productoId, producto, usuarioId) {
+    const cliente = obtenerClienteSupabase();
+    if (!cliente || !usuarioId) {
+        throw new Error('Supabase no está disponible');
+    }
+
+    const { data, error } = await cliente
+        .from('productos')
+        .update({
+            nombre: producto.nombre,
+            tipo: producto.tipo,
+            moneda: producto.moneda,
+            costo_unitario: producto.costoUnitario,
+            precio_venta: producto.precioVenta,
+            unidades_vendidas: producto.unidadesVendidas
+        })
+        .eq('usuario_id', usuarioId)
+        .eq('id', productoId)
+        .select()
+        .single();
+
+    if (error) {
+        throw error;
+    }
+
+    return mapearProductoDesdeSupabase(data);
+}
+
 async function eliminarProductoDeSupabase(productoId, usuarioId) {
     const cliente = obtenerClienteSupabase();
     if (!cliente || !usuarioId) {
@@ -117,6 +145,7 @@ let state = {
 };
 
 let usuarioActual = null;
+let productoEnEdicionId = null;
 
 // Configuración de monedas
 const monedas = {
@@ -210,6 +239,7 @@ function configurarAutenticacion() {
             });
             usuarioActual = null;
             state.productos = [];
+            cancelarEdicionProducto(true);
             localStorage.removeItem('sistemaFinanciero');
             mostrarFormularioLogin();
         });
@@ -284,6 +314,7 @@ async function sincronizarDatosUsuario(usuario) {
     try {
         const productos = await obtenerProductosDeSupabase(usuario.id);
         state.productos = productos;
+        cancelarEdicionProducto(true);
         if (document.getElementById('lista-productos')) {
             actualizarVistas();
         }
@@ -386,14 +417,18 @@ async function agregarProducto() {
                 unidadesVendidas: unidades
             };
 
-            const productoGuardado = await crearProductoEnSupabase(producto, usuarioActual.id);
-            state.productos.push(productoGuardado);
+            if (productoEnEdicionId) {
+                const productoActualizado = await actualizarProductoEnSupabase(productoEnEdicionId, producto, usuarioActual.id);
+                const indice = state.productos.findIndex(p => p.id === productoEnEdicionId);
+                if (indice >= 0) {
+                    state.productos[indice] = productoActualizado;
+                }
+            } else {
+                const productoGuardado = await crearProductoEnSupabase(producto, usuarioActual.id);
+                state.productos.push(productoGuardado);
+            }
 
-            document.getElementById('prod-nombre').value = '';
-            document.getElementById('prod-costo').value = '';
-            document.getElementById('prod-precio').value = '';
-            document.getElementById('prod-unidades').value = '';
-
+            restablecerFormularioProducto();
             actualizarVistas();
             guardarDatos();
         } catch (error) {
@@ -415,6 +450,9 @@ async function eliminarProducto(id) {
         try {
             await eliminarProductoDeSupabase(id, usuarioActual.id);
             state.productos = state.productos.filter(p => p.id !== id);
+            if (productoEnEdicionId === id) {
+                cancelarEdicionProducto(true);
+            }
             actualizarVistas();
             guardarDatos();
         } catch (error) {
@@ -422,6 +460,84 @@ async function eliminarProducto(id) {
             alert('No se pudo eliminar el producto. Intenta nuevamente.');
         }
     }
+}
+
+function editarProducto(id) {
+    if (!usuarioActual || !usuarioActual.id) {
+        alert('Debes iniciar sesión para gestionar tus productos.');
+        return;
+    }
+
+    const producto = state.productos.find(p => p.id === id);
+    if (!producto) return;
+
+    productoEnEdicionId = id;
+
+    const campos = {
+        'prod-nombre': producto.nombre,
+        'prod-tipo': producto.tipo,
+        'prod-moneda': producto.moneda,
+        'prod-costo': producto.costoUnitario,
+        'prod-precio': producto.precioVenta,
+        'prod-unidades': producto.unidadesVendidas
+    };
+
+    Object.entries(campos).forEach(([idCampo, valor]) => {
+        const elemento = document.getElementById(idCampo);
+        if (elemento) {
+            elemento.value = valor;
+        }
+    });
+
+    const submitButton = document.getElementById('prod-submit');
+    const cancelButton = document.getElementById('prod-cancel');
+    if (submitButton) {
+        submitButton.textContent = '💾 Guardar Cambios';
+    }
+    if (cancelButton) {
+        cancelButton.classList.remove('hidden');
+    }
+}
+
+function cancelarEdicionProducto(silencioso = false) {
+    const estabaEditando = Boolean(productoEnEdicionId);
+    restablecerFormularioProducto();
+
+    if (estabaEditando && !silencioso) {
+        const submitButton = document.getElementById('prod-submit');
+        if (submitButton) {
+            submitButton.focus();
+        }
+    }
+}
+
+function restablecerFormularioProducto() {
+    ['prod-nombre', 'prod-costo', 'prod-precio', 'prod-unidades'].forEach(idCampo => {
+        const campo = document.getElementById(idCampo);
+        if (campo) {
+            campo.value = '';
+        }
+    });
+
+    const tipo = document.getElementById('prod-tipo');
+    const moneda = document.getElementById('prod-moneda');
+    if (tipo) {
+        tipo.value = 'producto';
+    }
+    if (moneda) {
+        moneda.value = state.moneda || 'CRC';
+    }
+
+    const submitButton = document.getElementById('prod-submit');
+    const cancelButton = document.getElementById('prod-cancel');
+    if (submitButton) {
+        submitButton.textContent = '➕ Agregar Producto';
+    }
+    if (cancelButton) {
+        cancelButton.classList.add('hidden');
+    }
+
+    productoEnEdicionId = null;
 }
 
 // CRUD Costos Fijos
@@ -619,9 +735,14 @@ function actualizarListaProductos() {
                             </div>
                         </div>
                     </div>
-                    <button class="delete-btn" onclick="eliminarProducto(${producto.id})">
-                        🗑️
-                    </button>
+                    <div class="product-actions">
+                        <button class="edit-btn" onclick="editarProducto(${producto.id})" title="Editar ${producto.nombre}">
+                            ✏️
+                        </button>
+                        <button class="delete-btn" onclick="eliminarProducto(${producto.id})" title="Eliminar ${producto.nombre}">
+                            🗑️
+                        </button>
+                    </div>
                 </div>
             </div>
         `;

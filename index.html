@@ -144,11 +144,16 @@
                             <input type="number" id="prod-unidades" placeholder="0">
                         </div>
                     </div>
-                    <button class="btn" onclick="agregarProducto()">
-                        ➕ Agregar Producto
-                    </button>
+                    <div class="form-actions">
+                        <button id="prod-submit" class="btn" type="button" onclick="agregarProducto()">
+                            ➕ Agregar Producto
+                        </button>
+                        <button id="prod-cancel" class="btn btn-secondary hidden" type="button" onclick="cancelarEdicionProducto()">
+                            ✖️ Cancelar
+                        </button>
+                    </div>
                 </div>
-                
+
                 <div id="lista-productos"></div>
             </div>
 
