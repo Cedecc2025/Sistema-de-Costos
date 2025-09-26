@@ -177,6 +177,10 @@ h1 {
     background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
 }
 
+.btn-logout {
+    background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+}
+
 .tabs {
     display: flex;
     border-bottom: 2px solid #e2e8f0;

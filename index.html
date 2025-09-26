@@ -21,7 +21,6 @@
                 <label for="loginUsuario">Usuario</label>
                 <input type="text" id="loginUsuario" placeholder="admin" autocomplete="username" required>
             </div>
-            <p class="login-hint">El usuario debe existir en Supabase (por defecto <strong>admin</strong>).</p>
             <p id="loginError" class="login-error" role="alert" aria-live="polite"></p>
             <button type="submit" class="btn btn-login">Ingresar</button>
         </form>
@@ -44,7 +43,7 @@
                     <p class="subtitle">Gestiona costos, calcula punto de equilibrio y controla tu flujo de caja</p>
                 </div>
                 
-                <div style="display: flex; gap: 10px;">
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <div class="dropdown">
                         <button class="btn btn-secondary" onclick="toggleDropdown('dataMenu')">
                             📊 Datos ▼
@@ -83,6 +82,9 @@
                             </div>
                         </div>
                     </div>
+                    <button id="logoutButton" class="btn btn-logout" type="button">
+                        🚪 Cerrar sesión
+                    </button>
                 </div>
             </div>
         </div>

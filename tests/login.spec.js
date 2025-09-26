@@ -20,7 +20,9 @@ const html = `<!DOCTYPE html>
             <button type="submit">Ingresar</button>
         </form>
     </div>
-    <div class="container hidden"></div>
+    <div class="container hidden">
+        <button id="logoutButton" type="button">Cerrar sesión</button>
+    </div>
 </body>
 </html>`;
 
@@ -99,6 +101,8 @@ async function main() {
     const loginUsuario = window.document.getElementById('loginUsuario');
     const loginError = window.document.getElementById('loginError');
     const submitButton = loginForm.querySelector('button[type="submit"]');
+    const logoutButton = window.document.getElementById('logoutButton');
+    assert(logoutButton, 'Debe existir un botón de cerrar sesión.');
 
     assert(loginContainer && !loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse tras iniciar.');
     assert(mainContainer && mainContainer.classList.contains('hidden'), 'El dashboard debe permanecer oculto inicialmente.');
@@ -122,6 +126,15 @@ async function main() {
     assert(loginContainer.classList.contains('hidden'), 'El formulario debe ocultarse tras login correcto.');
     assert(!mainContainer.classList.contains('hidden'), 'El dashboard debe mostrarse tras login correcto.');
     assert(inicializada, 'Debe inicializar la aplicación tras login correcto.');
+
+    logoutButton.click();
+
+    assert.strictEqual(window.sessionStorage.getItem('usuarioAutenticado'), null, 'Debe limpiarse la sesión tras cerrar sesión.');
+    assert.strictEqual(window.sessionStorage.getItem('usuarioNombre'), null, 'El nombre debe eliminarse al cerrar sesión.');
+    assert.strictEqual(window.sessionStorage.getItem('usuarioId'), null, 'El id debe eliminarse al cerrar sesión.');
+    assert(!loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse nuevamente tras cerrar sesión.');
+    assert(mainContainer.classList.contains('hidden'), 'El dashboard debe ocultarse tras cerrar sesión.');
+    assert.strictEqual(loginUsuario.value, '', 'El campo de usuario debe reiniciarse tras cerrar sesión.');
 }
 
 main().then(() => {

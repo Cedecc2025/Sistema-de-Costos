@@ -86,6 +86,7 @@ function configurarAutenticacion() {
     const loginError = document.getElementById('loginError');
     const loginUsuario = document.getElementById('loginUsuario');
     const loginSubmit = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
+    const logoutButton = document.getElementById('logoutButton');
 
     if (!loginContainer || !mainContainer || !loginForm) {
         inicializarAplicacion();
@@ -95,6 +96,12 @@ function configurarAutenticacion() {
     const mostrarFormularioLogin = () => {
         loginContainer.classList.remove('hidden');
         mainContainer.classList.add('hidden');
+        if (loginForm) {
+            loginForm.reset();
+        }
+        if (loginError) {
+            loginError.textContent = '';
+        }
         if (loginUsuario) {
             setTimeout(() => loginUsuario.focus(), 50);
         }
@@ -120,6 +127,16 @@ function configurarAutenticacion() {
         }
         inicializarAplicacion();
     };
+
+    if (logoutButton) {
+        logoutButton.addEventListener('click', () => {
+            ['usuarioAutenticado', 'usuarioId', 'usuarioNombre'].forEach((clave) => {
+                sessionStorage.removeItem(clave);
+            });
+            usuarioActual = null;
+            mostrarFormularioLogin();
+        });
+    }
 
     const sesionPersistida = sessionStorage.getItem('usuarioAutenticado') === 'true';
     if (sesionPersistida) {
@@ -167,7 +184,7 @@ function configurarAutenticacion() {
         } catch (error) {
             console.error('Error al verificar usuario en Supabase:', error);
             if (loginError) {
-                loginError.textContent = 'No se pudo validar el usuario en Supabase. Intenta nuevamente en unos minutos.';
+                loginError.textContent = 'No se pudo validar el usuario. Intenta nuevamente en unos minutos.';
             }
         } finally {
             if (loginSubmit) {
