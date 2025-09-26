@@ -16,6 +16,10 @@ const html = `<!DOCTYPE html>
                 <label for="loginUsuario">Usuario</label>
                 <input type="text" id="loginUsuario" autocomplete="username" required>
             </div>
+            <div class="login-group">
+                <label for="loginPassword">Contraseña</label>
+                <input type="password" id="loginPassword" autocomplete="current-password" required>
+            </div>
             <p id="loginError" class="login-error" role="alert"></p>
             <button type="submit">Ingresar</button>
         </form>
@@ -53,18 +57,206 @@ window.Chart = function() {
 
 function crearClienteSupabaseMock() {
     return {
-        from() {
+        from(tabla) {
+            if (tabla === 'usuarios') {
+                return {
+                    select() {
+                        return {
+                            ilike(_columna, valor) {
+                                return {
+                                    limit() {
+                                        const coincide = valor.trim().toLowerCase() === 'admin';
+                                        return Promise.resolve({
+                                            data: coincide ? [{ id: 1, username: 'admin', password: 'supersecreto' }] : [],
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                    }
+                };
+            }
+
+            if (tabla === 'productos') {
+                return {
+                    select() {
+                        return {
+                            eq() {
+                                return {
+                                    order() {
+                                        return Promise.resolve({ data: [], error: null });
+                                    }
+                                };
+                            }
+                        };
+                    },
+                    insert() {
+                        return {
+                            select() {
+                                return {
+                                    single() {
+                                        return Promise.resolve({
+                                            data: {
+                                                id: 99,
+                                                nombre: 'Mock',
+                                                tipo: 'producto',
+                                                moneda: 'CRC',
+                                                costo_unitario: 0,
+                                                precio_venta: 0,
+                                                unidades_vendidas: 0
+                                            },
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                    },
+                    update(payload = {}) {
+                        const contexto = { payload, id: null };
+                        const builder = {
+                            eq(columna, valor) {
+                                if (columna === 'id') {
+                                    contexto.id = valor;
+                                }
+                                return builder;
+                            },
+                            select() {
+                                return {
+                                    single() {
+                                        return Promise.resolve({
+                                            data: {
+                                                id: contexto.id ?? 99,
+                                                nombre: payload.nombre ?? 'Mock Editado',
+                                                tipo: payload.tipo ?? 'producto',
+                                                moneda: payload.moneda ?? 'CRC',
+                                                costo_unitario: payload.costo_unitario ?? 0,
+                                                precio_venta: payload.precio_venta ?? 0,
+                                                unidades_vendidas: payload.unidades_vendidas ?? 0
+                                            },
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                        return builder;
+                    },
+                    delete() {
+                        const contexto = { filtros: {} };
+                        const resultado = Promise.resolve({ data: null, error: null, contexto });
+                        const builder = {
+                            eq(columna, valor) {
+                                contexto.filtros[columna] = valor;
+                                return builder;
+                            },
+                            then(onFulfilled, onRejected) {
+                                return resultado.then(onFulfilled, onRejected);
+                            },
+                            catch(onRejected) {
+                                return resultado.catch(onRejected);
+                            },
+                            finally(onFinally) {
+                                return resultado.finally(onFinally);
+                            }
+                        };
+                        return builder;
+                    }
+                };
+            }
+
+            if (tabla === 'costos_fijos') {
+                return {
+                    select() {
+                        return {
+                            eq() {
+                                return {
+                                    order() {
+                                        return Promise.resolve({ data: [], error: null });
+                                    }
+                                };
+                            }
+                        };
+                    },
+                    insert() {
+                        return {
+                            select() {
+                                return {
+                                    single() {
+                                        return Promise.resolve({
+                                            data: {
+                                                id: 101,
+                                                concepto: 'Renta',
+                                                moneda: 'CRC',
+                                                monto: 1000,
+                                                frecuencia: 'mensual'
+                                            },
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                    },
+                    update(payload = {}) {
+                        const contexto = { payload, id: null };
+                        const builder = {
+                            eq(columna, valor) {
+                                if (columna === 'id') {
+                                    contexto.id = valor;
+                                }
+                                return builder;
+                            },
+                            select() {
+                                return {
+                                    single() {
+                                        return Promise.resolve({
+                                            data: {
+                                                id: contexto.id ?? 101,
+                                                concepto: payload.concepto ?? 'Renta',
+                                                moneda: payload.moneda ?? 'CRC',
+                                                monto: payload.monto ?? 1000,
+                                                frecuencia: payload.frecuencia ?? 'mensual'
+                                            },
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                        return builder;
+                    },
+                    delete() {
+                        const contexto = { filtros: {} };
+                        const resultado = Promise.resolve({ data: null, error: null, contexto });
+                        const builder = {
+                            eq(columna, valor) {
+                                contexto.filtros[columna] = valor;
+                                return builder;
+                            },
+                            then(onFulfilled, onRejected) {
+                                return resultado.then(onFulfilled, onRejected);
+                            },
+                            catch(onRejected) {
+                                return resultado.catch(onRejected);
+                            },
+                            finally(onFinally) {
+                                return resultado.finally(onFinally);
+                            }
+                        };
+                        return builder;
+                    }
+                };
+            }
+
             return {
                 select() {
                     return {
-                        ilike(_columna, valor) {
+                        eq() {
                             return {
-                                limit() {
-                                    const coincide = valor.trim().toLowerCase() === 'admin';
-                                    return Promise.resolve({
-                                        data: coincide ? [{ id: 1, username: 'admin' }] : [],
-                                        error: null
-                                    });
+                                order() {
+                                    return Promise.resolve({ data: [], error: null });
                                 }
                             };
                         }
@@ -99,6 +291,7 @@ async function main() {
     const mainContainer = window.document.querySelector('.container');
     const loginForm = window.document.getElementById('loginForm');
     const loginUsuario = window.document.getElementById('loginUsuario');
+    const loginPassword = window.document.getElementById('loginPassword');
     const loginError = window.document.getElementById('loginError');
     const submitButton = loginForm.querySelector('button[type="submit"]');
     const logoutButton = window.document.getElementById('logoutButton');
@@ -106,8 +299,18 @@ async function main() {
 
     assert(loginContainer && !loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse tras iniciar.');
     assert(mainContainer && mainContainer.classList.contains('hidden'), 'El dashboard debe permanecer oculto inicialmente.');
+    assert(loginPassword, 'Debe existir un campo para la contraseña.');
+
+    loginUsuario.value = 'admin';
+    loginPassword.value = '';
+    loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    assert.strictEqual(window.sessionStorage.getItem('usuarioAutenticado'), null, 'No debe iniciar sesión si falta la contraseña.');
+    assert(!submitButton.disabled, 'El botón debe reactivarse tras validar credenciales incompletas.');
 
     loginUsuario.value = 'usuario';
+    loginPassword.value = 'supersecreto';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 5));
 
@@ -117,6 +320,16 @@ async function main() {
     assert(mainContainer.classList.contains('hidden'), 'El dashboard debe seguir oculto tras fallo.');
 
     loginUsuario.value = 'admin';
+    loginPassword.value = 'incorrecta';
+    loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    assert.strictEqual(window.sessionStorage.getItem('usuarioAutenticado'), null, 'No debe guardarse sesión con contraseña inválida.');
+    assert(loginError.textContent.includes('Usuario no autorizado'), 'Debe mostrar error de contraseña inválida.');
+    assert.strictEqual(loginPassword.value, '', 'La contraseña debe limpiarse tras un fallo.');
+
+    loginUsuario.value = 'admin';
+    loginPassword.value = 'supersecreto';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 5));
 
@@ -135,6 +348,7 @@ async function main() {
     assert(!loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse nuevamente tras cerrar sesión.');
     assert(mainContainer.classList.contains('hidden'), 'El dashboard debe ocultarse tras cerrar sesión.');
     assert.strictEqual(loginUsuario.value, '', 'El campo de usuario debe reiniciarse tras cerrar sesión.');
+    assert.strictEqual(loginPassword.value, '', 'El campo de contraseña debe reiniciarse tras cerrar sesión.');
 }
 
 main().then(() => {
