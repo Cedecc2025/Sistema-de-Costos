@@ -7,6 +7,13 @@ let state = {
     tasaCambio: 520
 };
 
+const SUPABASE_URL = 'https://jsjwgjaprgymeonsadny.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzandnamFwcmd5bWVvbnNhZG55Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MzY5NjQsImV4cCI6MjA3NDIxMjk2NH0.4fjXkdOCyaubZuVIZNeViaA6MfdDK-4pdH9h-Ty2bfk';
+const supabaseClient = typeof window !== 'undefined' && window.supabase
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+let usuarioActual = null;
+
 // Configuración de monedas
 const monedas = {
     CRC: { simbolo: '₡', nombre: 'Colones', decimales: 0 },
@@ -43,34 +50,89 @@ function inicializarAplicacion() {
     appInicializada = true;
 }
 
-function configurarAutenticacion() {
+async function configurarAutenticacion() {
     const loginContainer = document.getElementById('loginContainer');
     const mainContainer = document.querySelector('.container');
     const loginForm = document.getElementById('loginForm');
     const loginError = document.getElementById('loginError');
     const loginUsuario = document.getElementById('loginUsuario');
+    const loginPassword = document.getElementById('loginPassword');
+    const loginSubmit = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
 
     if (!loginContainer || !mainContainer || !loginForm) return;
 
-    const estaAutenticado = sessionStorage.getItem('usuarioAutenticado') === 'true';
+    if (!supabaseClient) {
+        console.error('Supabase no está disponible. Verifica la carga del SDK.');
+        if (loginError) {
+            loginError.textContent = 'Error de configuración: no se pudo conectar al servicio de autenticación.';
+        }
+        loginContainer.classList.remove('hidden');
+        mainContainer.classList.add('hidden');
+        return;
+    }
 
-    if (estaAutenticado) {
-        loginContainer.classList.add('hidden');
-        mainContainer.classList.remove('hidden');
-        inicializarAplicacion();
-    } else {
+    const mostrarFormularioLogin = () => {
         loginContainer.classList.remove('hidden');
         mainContainer.classList.add('hidden');
         if (loginUsuario) {
             setTimeout(() => loginUsuario.focus(), 50);
         }
+    };
+
+    const manejarSesionActiva = async (session) => {
+        if (!session) return;
+        usuarioActual = session.user;
+        sessionStorage.setItem('usuarioAutenticado', 'true');
+        if (loginError) {
+            loginError.textContent = '';
+        }
+        loginContainer.classList.add('hidden');
+        mainContainer.classList.remove('hidden');
+        if (loginForm) {
+            loginForm.reset();
+        }
+        await registrarUsuarioSiNoExiste(usuarioActual);
+        inicializarAplicacion();
+    };
+
+    const manejarCierreSesion = () => {
+        usuarioActual = null;
+        sessionStorage.removeItem('usuarioAutenticado');
+        mostrarFormularioLogin();
+    };
+
+    try {
+        const { data, error } = await supabaseClient.auth.getSession();
+        if (error) {
+            console.error('Error verificando sesión:', error);
+            mostrarFormularioLogin();
+        } else if (data.session) {
+            await manejarSesionActiva(data.session);
+        } else {
+            mostrarFormularioLogin();
+        }
+    } catch (error) {
+        console.error('No se pudo verificar la sesión inicial:', error);
+        mostrarFormularioLogin();
     }
 
-    loginForm.addEventListener('submit', (event) => {
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_OUT' || !session) {
+            manejarCierreSesion();
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            manejarSesionActiva(session);
+        }
+    });
+
+    loginForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
-        const usuario = document.getElementById('loginUsuario').value.trim();
-        const contrasena = document.getElementById('loginPassword').value.trim();
+        const usuario = loginUsuario ? loginUsuario.value.trim() : '';
+        const contrasena = loginPassword ? loginPassword.value.trim() : '';
+
+        if (loginError) {
+            loginError.textContent = '';
+        }
 
         if (!usuario || !contrasena) {
             if (loginError) {
@@ -79,21 +141,68 @@ function configurarAutenticacion() {
             return;
         }
 
-        if (usuario.toLowerCase() === 'admin@empresa.com' && contrasena === 'admin123') {
-            sessionStorage.setItem('usuarioAutenticado', 'true');
-            if (loginError) {
-                loginError.textContent = '';
+        const botonOriginal = loginSubmit ? loginSubmit.textContent : '';
+        if (loginSubmit) {
+            loginSubmit.disabled = true;
+            loginSubmit.textContent = 'Ingresando...';
+        }
+
+        try {
+            const { data, error } = await supabaseClient.auth.signInWithPassword({
+                email: usuario,
+                password: contrasena
+            });
+
+            if (error || !data.session) {
+                console.warn('No se pudo iniciar sesión:', error);
+                if (loginError) {
+                    loginError.textContent = 'Credenciales incorrectas o usuario no registrado.';
+                }
+                return;
             }
-            loginForm.reset();
-            loginContainer.classList.add('hidden');
-            mainContainer.classList.remove('hidden');
-            inicializarAplicacion();
-        } else {
+
+            await manejarSesionActiva(data.session);
+        } catch (error) {
+            console.error('Error durante el proceso de login:', error);
             if (loginError) {
-                loginError.textContent = 'Credenciales incorrectas. Inténtalo nuevamente.';
+                loginError.textContent = 'Ocurrió un problema al iniciar sesión. Inténtalo nuevamente más tarde.';
+            }
+        } finally {
+            if (loginSubmit) {
+                loginSubmit.disabled = false;
+                loginSubmit.textContent = botonOriginal || 'Ingresar';
             }
         }
     });
+}
+
+async function registrarUsuarioSiNoExiste(user) {
+    if (!user || !user.email || !supabaseClient) return;
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('usuarios')
+            .select('id')
+            .eq('username', user.email)
+            .maybeSingle();
+
+        if (error && error.code !== 'PGRST116') {
+            console.warn('No se pudo verificar el registro de usuario:', error);
+            return;
+        }
+
+        if (!data) {
+            const { error: insertError } = await supabaseClient
+                .from('usuarios')
+                .insert({ username: user.email });
+
+            if (insertError && insertError.code !== '23505') {
+                console.warn('No se pudo registrar el usuario en la base de datos:', insertError);
+            }
+        }
+    } catch (error) {
+        console.warn('Error inesperado al sincronizar el usuario:', error);
+    }
 }
 
 // Funciones de UI
