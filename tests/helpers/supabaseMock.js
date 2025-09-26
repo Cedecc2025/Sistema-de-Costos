@@ -1,11 +1,20 @@
 const productosMock = [];
 let usuariosMock = [];
 let ultimoProductoId = 0;
+let ultimoUsuarioId = 0;
+let authUsuarios = [];
+let sesionActual = null;
 
-function resetSupabaseState({ usuarios = [{ id: 1, username: 'admin' }], productos = [] } = {}) {
+function resetSupabaseState({
+    usuarios = [{ id: 1, username: 'admin@example.com' }],
+    productos = [],
+    credenciales = [{ email: 'admin@example.com', password: 'admin', usuarioId: 1, username: 'admin@example.com' }]
+} = {}) {
     usuariosMock = usuarios.map(usuario => ({ ...usuario }));
+    ultimoUsuarioId = usuariosMock.reduce((max, usuario) => Math.max(max, usuario.id || 0), 0);
     productosMock.length = 0;
     ultimoProductoId = 0;
+    sesionActual = null;
 
     productos.forEach(producto => {
         const copia = { ...producto };
@@ -17,6 +26,13 @@ function resetSupabaseState({ usuarios = [{ id: 1, username: 'admin' }], product
         }
         productosMock.push(copia);
     });
+
+    authUsuarios = credenciales.map(credencial => ({
+        email: String(credencial.email || '').toLowerCase(),
+        password: credencial.password,
+        usuarioId: credencial.usuarioId,
+        username: credencial.username || credencial.email
+    }));
 }
 
 function normalizarUsuario(valor) {
@@ -24,6 +40,29 @@ function normalizarUsuario(valor) {
         .trim()
         .toLowerCase()
         .replace(/^%|%$/g, '');
+}
+
+function crearUsuariosInsertBuilder(registros) {
+    const creados = registros.map((registro) => {
+        ultimoUsuarioId += 1;
+        const nuevoUsuario = {
+            id: registro.id || ultimoUsuarioId,
+            username: registro.username
+        };
+        ultimoUsuarioId = Math.max(ultimoUsuarioId, nuevoUsuario.id);
+        usuariosMock.push(nuevoUsuario);
+        return nuevoUsuario;
+    });
+
+    return {
+        select() {
+            return {
+                single() {
+                    return Promise.resolve({ data: creados[0], error: null });
+                }
+            };
+        }
+    };
 }
 
 function crearUsuariosBuilder() {
@@ -43,6 +82,9 @@ function crearUsuariosBuilder() {
                     };
                 }
             };
+        },
+        insert(registros) {
+            return crearUsuariosInsertBuilder(registros);
         }
     };
 }
@@ -167,8 +209,50 @@ function crearProductosBuilder() {
     };
 }
 
+function crearAuthBuilder() {
+    return {
+        signInWithPassword({ email, password }) {
+            const correo = String(email || '').toLowerCase();
+            const registro = authUsuarios.find(usuario => usuario.email === correo);
+
+            if (!registro || registro.password !== password) {
+                return Promise.resolve({
+                    data: { session: null },
+                    error: { message: 'Invalid login credentials' }
+                });
+            }
+
+            sesionActual = {
+                user: {
+                    id: `mock-user-${registro.usuarioId || 1}`,
+                    email: registro.email,
+                    user_metadata: {
+                        username: registro.username
+                    }
+                }
+            };
+
+            return Promise.resolve({
+                data: { session: sesionActual },
+                error: null
+            });
+        },
+        getSession() {
+            return Promise.resolve({
+                data: { session: sesionActual },
+                error: null
+            });
+        },
+        signOut() {
+            sesionActual = null;
+            return Promise.resolve({ error: null });
+        }
+    };
+}
+
 function crearClienteSupabaseMock() {
     return {
+        auth: crearAuthBuilder(),
         from(tabla) {
             if (tabla === 'usuarios') {
                 return crearUsuariosBuilder();

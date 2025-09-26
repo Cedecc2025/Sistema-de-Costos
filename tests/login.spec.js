@@ -15,8 +15,12 @@ const html = `<!DOCTYPE html>
     <div id="loginContainer" class="login-wrapper hidden">
         <form id="loginForm" class="login-card">
             <div class="login-group">
-                <label for="loginUsuario">Usuario</label>
-                <input type="text" id="loginUsuario" autocomplete="username" required>
+                <label for="loginUsuario">Correo electrónico</label>
+                <input type="email" id="loginUsuario" autocomplete="username" required>
+            </div>
+            <div class="login-group">
+                <label for="loginPassword">Contraseña</label>
+                <input type="password" id="loginPassword" autocomplete="current-password" required>
             </div>
             <p id="loginError" class="login-error" role="alert"></p>
             <button type="submit">Ingresar</button>
@@ -110,11 +114,13 @@ aSyncMain().catch(error => {
 
 async function aSyncMain() {
     window.dispatchEvent(new window.Event('DOMContentLoaded'));
+    await new Promise(resolve => setTimeout(resolve, 5));
 
     const loginContainer = window.document.getElementById('loginContainer');
     const mainContainer = window.document.querySelector('.container');
     const loginForm = window.document.getElementById('loginForm');
     const loginUsuario = window.document.getElementById('loginUsuario');
+    const loginPassword = window.document.getElementById('loginPassword');
     const loginError = window.document.getElementById('loginError');
     const submitButton = loginForm.querySelector('button[type="submit"]');
     const logoutButton = window.document.getElementById('logoutButton');
@@ -123,27 +129,30 @@ async function aSyncMain() {
     assert(loginContainer && !loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse tras iniciar.');
     assert(mainContainer && mainContainer.classList.contains('hidden'), 'El dashboard debe permanecer oculto inicialmente.');
 
-    loginUsuario.value = 'usuario';
+    loginUsuario.value = 'usuario@example.com';
+    loginPassword.value = 'wrong';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 10));
 
     assert.strictEqual(window.sessionStorage.getItem('usuarioAutenticado'), null, 'No debe guardarse sesión con usuario inválido.');
-    assert(loginError.textContent.includes('Usuario no autorizado'), 'Debe mostrar error de usuario inválido.');
+    assert(loginError.textContent.includes('Credenciales inválidas'), 'Debe mostrar error de credenciales inválidas.');
     assert(!submitButton.disabled, 'El botón debe reactivarse tras fallo.');
     assert(mainContainer.classList.contains('hidden'), 'El dashboard debe seguir oculto tras fallo.');
 
-    loginUsuario.value = 'admin';
+    loginUsuario.value = 'admin@example.com';
+    loginPassword.value = 'admin';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 5));
 
     assert(window.sessionStorage.getItem('usuarioAutenticado') === 'true', 'Debe guardarse la sesión tras login correcto.');
-    assert.strictEqual(window.sessionStorage.getItem('usuarioNombre'), 'admin', 'Debe persistir el nombre de usuario.');
+    assert.strictEqual(window.sessionStorage.getItem('usuarioNombre'), 'admin@example.com', 'Debe persistir el nombre de usuario.');
     assert.strictEqual(window.sessionStorage.getItem('usuarioId'), '1', 'Debe guardar el id del usuario.');
     assert(loginContainer.classList.contains('hidden'), 'El formulario debe ocultarse tras login correcto.');
     assert(!mainContainer.classList.contains('hidden'), 'El dashboard debe mostrarse tras login correcto.');
     assert(inicializada, 'Debe inicializar la aplicación tras login correcto.');
 
     logoutButton.click();
+    await new Promise(resolve => setTimeout(resolve, 5));
 
     assert.strictEqual(window.sessionStorage.getItem('usuarioAutenticado'), null, 'Debe limpiarse la sesión tras cerrar sesión.');
     assert.strictEqual(window.sessionStorage.getItem('usuarioNombre'), null, 'El nombre debe eliminarse al cerrar sesión.');
@@ -151,6 +160,7 @@ async function aSyncMain() {
     assert(!loginContainer.classList.contains('hidden'), 'El formulario debe mostrarse nuevamente tras cerrar sesión.');
     assert(mainContainer.classList.contains('hidden'), 'El dashboard debe ocultarse tras cerrar sesión.');
     assert.strictEqual(loginUsuario.value, '', 'El campo de usuario debe reiniciarse tras cerrar sesión.');
+    assert.strictEqual(loginPassword.value, '', 'El campo de contraseña debe reiniciarse tras cerrar sesión.');
 
     console.log('Login tests passed');
 }

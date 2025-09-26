@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Gestión Financiera para Negocios</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="vendor/chart.umd.min.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -14,12 +14,16 @@
                 <div class="login-icon">🔐</div>
                 <div>
                     <h2>Iniciar sesión</h2>
-                    <p class="login-subtitle">Ingresa tus credenciales para acceder al sistema</p>
+                    <p class="login-subtitle">Ingresa tu correo y contraseña registrados en Supabase para acceder al sistema</p>
                 </div>
             </div>
             <div class="login-group">
-                <label for="loginUsuario">Usuario</label>
-                <input type="text" id="loginUsuario" placeholder="admin" autocomplete="username" required>
+                <label for="loginUsuario">Correo electrónico</label>
+                <input type="email" id="loginUsuario" placeholder="admin@example.com" autocomplete="username" required>
+            </div>
+            <div class="login-group">
+                <label for="loginPassword">Contraseña</label>
+                <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" required>
             </div>
             <p id="loginError" class="login-error" role="alert" aria-live="polite"></p>
             <button type="submit" class="btn btn-login">Ingresar</button>

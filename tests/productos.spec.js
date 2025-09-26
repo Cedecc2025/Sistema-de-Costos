@@ -90,8 +90,10 @@ async function testProductos() {
 
     const loginForm = document.getElementById('loginForm');
     const loginUsuario = document.getElementById('loginUsuario');
+    const loginPassword = document.getElementById('loginPassword');
 
-    loginUsuario.value = 'admin';
+    loginUsuario.value = 'admin@example.com';
+    loginPassword.value = 'admin';
     loginForm.dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 10));
 

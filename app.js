@@ -12,13 +12,53 @@ function obtenerClienteSupabase() {
     return supabaseClient;
 }
 
+async function obtenerSesionSupabase() {
+    const cliente = obtenerClienteSupabase();
+    if (!cliente || !cliente.auth) return null;
+
+    const { data, error } = await cliente.auth.getSession();
+    if (error) {
+        throw error;
+    }
+
+    return data ? data.session : null;
+}
+
+async function iniciarSesionSupabase(email, password) {
+    const cliente = obtenerClienteSupabase();
+    if (!cliente || !cliente.auth) {
+        throw new Error('Supabase no está disponible');
+    }
+
+    const { data, error } = await cliente.auth.signInWithPassword({ email, password });
+    if (error) {
+        throw error;
+    }
+
+    return data ? data.session : null;
+}
+
+async function cerrarSesionSupabase() {
+    const cliente = obtenerClienteSupabase();
+    if (!cliente || !cliente.auth) return;
+
+    const { error } = await cliente.auth.signOut();
+    if (error) {
+        throw error;
+    }
+}
+
+function sanitizarIdentificadorUsuario(valor) {
+    return String(valor || '').trim();
+}
+
 async function buscarUsuarioEnSupabase(username) {
     const cliente = obtenerClienteSupabase();
     if (!cliente) {
         throw new Error('Supabase no está disponible');
     }
 
-    const patron = username.replace(/[\%_]/g, '\\$&');
+    const patron = sanitizarIdentificadorUsuario(username).replace(/[\%_]/g, '\\$&');
     const { data, error } = await cliente
         .from('usuarios')
         .select('id, username')
@@ -30,6 +70,39 @@ async function buscarUsuarioEnSupabase(username) {
     }
 
     return Array.isArray(data) ? data[0] : null;
+}
+
+async function asegurarUsuarioEnSupabase(username) {
+    const normalizado = sanitizarIdentificadorUsuario(username);
+    if (!normalizado) {
+        throw new Error('El nombre de usuario no es válido');
+    }
+
+    const existente = await buscarUsuarioEnSupabase(normalizado);
+    if (existente) {
+        return existente;
+    }
+
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) {
+        throw new Error('Supabase no está disponible');
+    }
+
+    const { data, error } = await cliente
+        .from('usuarios')
+        .insert([
+            {
+                username: normalizado
+            }
+        ])
+        .select('id, username')
+        .single();
+
+    if (error) {
+        throw error;
+    }
+
+    return data;
 }
 
 function mapearProductoDesdeSupabase(registro) {
@@ -46,12 +119,13 @@ function mapearProductoDesdeSupabase(registro) {
 
 async function obtenerProductosDeSupabase(usuarioId) {
     const cliente = obtenerClienteSupabase();
-    if (!cliente || !usuarioId) return [];
+    const idNumerico = Number(usuarioId);
+    if (!cliente || !Number.isFinite(idNumerico)) return [];
 
     const { data, error } = await cliente
         .from('productos')
         .select('id, nombre, tipo, moneda, costo_unitario, precio_venta, unidades_vendidas')
-        .eq('usuario_id', usuarioId)
+        .eq('usuario_id', idNumerico)
         .order('actualizado_en', { ascending: false });
 
     if (error) {
@@ -63,7 +137,8 @@ async function obtenerProductosDeSupabase(usuarioId) {
 
 async function crearProductoEnSupabase(producto, usuarioId) {
     const cliente = obtenerClienteSupabase();
-    if (!cliente || !usuarioId) {
+    const idNumerico = Number(usuarioId);
+    if (!cliente || !Number.isFinite(idNumerico)) {
         throw new Error('Supabase no está disponible');
     }
 
@@ -77,7 +152,7 @@ async function crearProductoEnSupabase(producto, usuarioId) {
                 costo_unitario: producto.costoUnitario,
                 precio_venta: producto.precioVenta,
                 unidades_vendidas: producto.unidadesVendidas,
-                usuario_id: usuarioId
+                usuario_id: idNumerico
             }
         ])
         .select()
@@ -92,7 +167,8 @@ async function crearProductoEnSupabase(producto, usuarioId) {
 
 async function actualizarProductoEnSupabase(productoId, producto, usuarioId) {
     const cliente = obtenerClienteSupabase();
-    if (!cliente || !usuarioId) {
+    const idNumerico = Number(usuarioId);
+    if (!cliente || !Number.isFinite(idNumerico)) {
         throw new Error('Supabase no está disponible');
     }
 
@@ -106,7 +182,7 @@ async function actualizarProductoEnSupabase(productoId, producto, usuarioId) {
             precio_venta: producto.precioVenta,
             unidades_vendidas: producto.unidadesVendidas
         })
-        .eq('usuario_id', usuarioId)
+        .eq('usuario_id', idNumerico)
         .eq('id', productoId)
         .select()
         .single();
@@ -120,14 +196,15 @@ async function actualizarProductoEnSupabase(productoId, producto, usuarioId) {
 
 async function eliminarProductoDeSupabase(productoId, usuarioId) {
     const cliente = obtenerClienteSupabase();
-    if (!cliente || !usuarioId) {
+    const idNumerico = Number(usuarioId);
+    if (!cliente || !Number.isFinite(idNumerico)) {
         throw new Error('Supabase no está disponible');
     }
 
     const respuesta = await cliente
         .from('productos')
         .delete()
-        .eq('usuario_id', usuarioId)
+        .eq('usuario_id', idNumerico)
         .eq('id', productoId);
 
     if (respuesta.error) {
@@ -189,6 +266,7 @@ function configurarAutenticacion() {
     const loginForm = document.getElementById('loginForm');
     const loginError = document.getElementById('loginError');
     const loginUsuario = document.getElementById('loginUsuario');
+    const loginPassword = document.getElementById('loginPassword');
     const loginSubmit = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
     const logoutButton = document.getElementById('logoutButton');
 
@@ -205,6 +283,9 @@ function configurarAutenticacion() {
         }
         if (loginError) {
             loginError.textContent = '';
+        }
+        if (loginPassword) {
+            loginPassword.value = '';
         }
         if (loginUsuario) {
             setTimeout(() => loginUsuario.focus(), 50);
@@ -233,7 +314,12 @@ function configurarAutenticacion() {
     };
 
     if (logoutButton) {
-        logoutButton.addEventListener('click', () => {
+        logoutButton.addEventListener('click', async () => {
+            try {
+                await cerrarSesionSupabase();
+            } catch (error) {
+                console.error('No se pudo cerrar la sesión de Supabase:', error);
+            }
             ['usuarioAutenticado', 'usuarioId', 'usuarioNombre'].forEach((clave) => {
                 sessionStorage.removeItem(clave);
             });
@@ -245,24 +331,46 @@ function configurarAutenticacion() {
         });
     }
 
-    const sesionPersistida = sessionStorage.getItem('usuarioAutenticado') === 'true';
-    if (sesionPersistida) {
-        const usernamePersistido = sessionStorage.getItem('usuarioNombre') || 'admin';
-        const idPersistido = sessionStorage.getItem('usuarioId');
-        const usuario = { username: usernamePersistido, id: idPersistido ? parseInt(idPersistido, 10) : undefined };
-        manejarSesionActiva(usuario);
-        sincronizarDatosUsuario(usuario).catch(error => {
-            console.error('Error al sincronizar datos de Supabase:', error);
-        });
-        return;
-    }
+    const restaurarSesion = async () => {
+        try {
+            const sesion = await obtenerSesionSupabase();
+            if (!sesion || !sesion.user) {
+                return false;
+            }
 
-    mostrarFormularioLogin();
+            const identificador = sanitizarIdentificadorUsuario(
+                sesion.user.user_metadata?.username || sesion.user.email || sessionStorage.getItem('usuarioNombre')
+            );
+
+            if (!identificador) {
+                return false;
+            }
+
+            const usuario = await asegurarUsuarioEnSupabase(identificador);
+            const usuarioNormalizado = {
+                username: usuario.username,
+                id: usuario.id
+            };
+            manejarSesionActiva(usuarioNormalizado);
+            await sincronizarDatosUsuario(usuarioNormalizado);
+            return true;
+        } catch (error) {
+            console.error('Error al restaurar la sesión de Supabase:', error);
+            return false;
+        }
+    };
+
+    restaurarSesion().then((activa) => {
+        if (!activa) {
+            mostrarFormularioLogin();
+        }
+    });
 
     loginForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
-        const usuarioIngresado = loginUsuario ? loginUsuario.value.trim() : '';
+        const usuarioIngresado = loginUsuario ? sanitizarIdentificadorUsuario(loginUsuario.value) : '';
+        const passwordIngresada = loginPassword ? loginPassword.value : '';
 
         if (loginError) {
             loginError.textContent = '';
@@ -270,7 +378,14 @@ function configurarAutenticacion() {
 
         if (!usuarioIngresado) {
             if (loginError) {
-                loginError.textContent = 'Por favor, ingresa tu usuario.';
+                loginError.textContent = 'Por favor, ingresa tu correo electrónico.';
+            }
+            return;
+        }
+
+        if (!passwordIngresada) {
+            if (loginError) {
+                loginError.textContent = 'Por favor, ingresa tu contraseña.';
             }
             return;
         }
@@ -282,22 +397,27 @@ function configurarAutenticacion() {
         }
 
         try {
-            const usuarioEncontrado = await buscarUsuarioEnSupabase(usuarioIngresado);
-
-            if (!usuarioEncontrado) {
-                if (loginError) {
-                    loginError.textContent = 'Usuario no autorizado. Verifica tus credenciales.';
-                }
-                return;
-            }
-
-            const usuarioAutenticado = { username: usuarioEncontrado.username, id: usuarioEncontrado.id };
+            const sesion = await iniciarSesionSupabase(usuarioIngresado, passwordIngresada);
+            const referenciaUsuario = sanitizarIdentificadorUsuario(
+                sesion?.user?.user_metadata?.username || usuarioIngresado
+            );
+            const usuarioRegistrado = await asegurarUsuarioEnSupabase(referenciaUsuario);
+            const usuarioAutenticado = {
+                username: usuarioRegistrado.username,
+                id: usuarioRegistrado.id
+            };
             manejarSesionActiva(usuarioAutenticado);
             await sincronizarDatosUsuario(usuarioAutenticado);
         } catch (error) {
             console.error('Error al verificar usuario en Supabase:', error);
             if (loginError) {
-                loginError.textContent = 'No se pudo validar el usuario. Intenta nuevamente en unos minutos.';
+                if (error && typeof error.message === 'string' && error.message.toLowerCase().includes('invalid login')) {
+                    loginError.textContent = 'Credenciales inválidas. Verifica tu correo y contraseña.';
+                } else if (error && error.code === '42501') {
+                    loginError.textContent = 'Tu cuenta no tiene permisos para acceder a los datos. Revisa las políticas de Supabase.';
+                } else {
+                    loginError.textContent = 'No se pudo validar el usuario. Intenta nuevamente en unos minutos.';
+                }
             }
         } finally {
             if (loginSubmit) {
@@ -406,6 +526,12 @@ async function agregarProducto() {
         return;
     }
 
+    const usuarioId = Number(usuarioActual.id);
+    if (!Number.isFinite(usuarioId)) {
+        alert('El identificador del usuario no es válido. Vuelve a iniciar sesión.');
+        return;
+    }
+
     if (nombre && costo > 0 && precio > 0) {
         try {
             const producto = {
@@ -418,13 +544,13 @@ async function agregarProducto() {
             };
 
             if (productoEnEdicionId) {
-                const productoActualizado = await actualizarProductoEnSupabase(productoEnEdicionId, producto, usuarioActual.id);
+                const productoActualizado = await actualizarProductoEnSupabase(productoEnEdicionId, producto, usuarioId);
                 const indice = state.productos.findIndex(p => p.id === productoEnEdicionId);
                 if (indice >= 0) {
                     state.productos[indice] = productoActualizado;
                 }
             } else {
-                const productoGuardado = await crearProductoEnSupabase(producto, usuarioActual.id);
+                const productoGuardado = await crearProductoEnSupabase(producto, usuarioId);
                 state.productos.push(productoGuardado);
             }
 
@@ -433,7 +559,11 @@ async function agregarProducto() {
             guardarDatos();
         } catch (error) {
             console.error('Error al guardar producto en Supabase:', error);
-            alert('No se pudo guardar el producto. Intenta nuevamente.');
+            if (error && error.code === '42501') {
+                alert('No tienes permisos para guardar productos en la base de datos. Verifica las políticas de seguridad de Supabase.');
+            } else {
+                alert('No se pudo guardar el producto. Intenta nuevamente.');
+            }
         }
     } else {
         alert('Por favor completa todos los campos requeridos');
@@ -446,9 +576,15 @@ async function eliminarProducto(id) {
         return;
     }
 
+    const usuarioId = Number(usuarioActual.id);
+    if (!Number.isFinite(usuarioId)) {
+        alert('El identificador del usuario no es válido. Vuelve a iniciar sesión.');
+        return;
+    }
+
     if (confirm('¿Estás seguro de eliminar este producto?')) {
         try {
-            await eliminarProductoDeSupabase(id, usuarioActual.id);
+            await eliminarProductoDeSupabase(id, usuarioId);
             state.productos = state.productos.filter(p => p.id !== id);
             if (productoEnEdicionId === id) {
                 cancelarEdicionProducto(true);
@@ -457,7 +593,11 @@ async function eliminarProducto(id) {
             guardarDatos();
         } catch (error) {
             console.error('Error al eliminar producto en Supabase:', error);
-            alert('No se pudo eliminar el producto. Intenta nuevamente.');
+            if (error && error.code === '42501') {
+                alert('No tienes permisos para eliminar productos en la base de datos. Verifica las políticas de seguridad de Supabase.');
+            } else {
+                alert('No se pudo eliminar el producto. Intenta nuevamente.');
+            }
         }
     }
 }
