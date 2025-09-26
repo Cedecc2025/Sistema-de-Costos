@@ -861,14 +861,14 @@ function actualizarListaProductos() {
 
         return `
             <div class="${clasesTarjeta}">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div style="flex: 1;">
-                        <div style="margin-bottom: 10px;">
-                            <span style="font-size: 18px; font-weight: 600; color: #2d3748;">${producto.nombre}</span>
+                <div class="product-card-header">
+                    <div class="product-card-main">
+                        <div class="product-card-title">
+                            <span class="product-name">${producto.nombre}</span>
                             <span class="badge badge-blue">${producto.tipo}</span>
                             <span class="badge badge-purple">${monedas[producto.moneda].simbolo} ${producto.moneda}</span>
                         </div>
-                        <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                        <div class="product-metrics-grid">
                             <div class="info-row">
                                 <span class="info-label">Costo:</span>
                                 <span class="info-value">${formatearMoneda(producto.costoUnitario, producto.moneda)}</span>
@@ -879,7 +879,7 @@ function actualizarListaProductos() {
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Margen:</span>
-                                <span class="info-value" style="color: #48bb78;">${formatearMoneda(margen)} (${margenPorcentaje.toFixed(1)}%)</span>
+                                <span class="info-value info-value--positive">${formatearMoneda(margen)} (${margenPorcentaje.toFixed(1)}%)</span>
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Unidades:</span>
@@ -887,16 +887,18 @@ function actualizarListaProductos() {
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Total:</span>
-                                <span class="info-value" style="color: #667eea;">${formatearMoneda(producto.precioVenta * producto.unidadesVendidas, producto.moneda)}</span>
+                                <span class="info-value info-value--highlight">${formatearMoneda(producto.precioVenta * producto.unidadesVendidas, producto.moneda)}</span>
                             </div>
                         </div>
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
-                        <button class="edit-btn" onclick="prepararEdicionProducto(${producto.id})" title="Editar producto">
-                            ✏️
+                    <div class="product-actions">
+                        <button class="product-action-btn edit-btn" onclick="prepararEdicionProducto(${producto.id})" title="Editar producto">
+                            <span class="product-action-icon">✏️</span>
+                            <span>Editar</span>
                         </button>
-                        <button class="delete-btn" onclick="mostrarAdvertenciaEliminarProducto(${producto.id})" title="Eliminar producto">
-                            🗑️
+                        <button class="product-action-btn delete-btn" onclick="mostrarAdvertenciaEliminarProducto(${producto.id})" title="Eliminar producto">
+                            <span class="product-action-icon">🗑️</span>
+                            <span>Eliminar</span>
                         </button>
                     </div>
                 </div>

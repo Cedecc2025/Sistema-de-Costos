@@ -278,6 +278,76 @@ input:focus, select:focus {
     border: 2px solid transparent;
 }
 
+.product-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.product-card-main {
+    flex: 1 1 260px;
+    min-width: 240px;
+}
+
+.product-card-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.product-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.product-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 18px;
+}
+
+.info-value--positive {
+    color: #48bb78;
+}
+
+.info-value--highlight {
+    color: #667eea;
+}
+
+.product-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 12px;
+    background: #edf2f7;
+    border-radius: 12px;
+    min-width: 200px;
+}
+
+.product-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    border-radius: 10px;
+    padding: 10px 16px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.product-action-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
 .product-card.editing {
     border-color: #fbbf24;
     box-shadow: 0 10px 25px rgba(251, 191, 36, 0.3);
@@ -434,14 +504,28 @@ input:focus, select:focus {
     background: #fee2e2;
     color: #991b1b;
     border: none;
-    padding: 8px;
-    border-radius: 8px;
+    padding: 10px 16px;
+    border-radius: 10px;
     cursor: pointer;
     transition: all 0.3s ease;
 }
 
 .delete-btn:hover {
     background: #fecaca;
+}
+
+.edit-btn {
+    background: #dbeafe;
+    color: #1e3a8a;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.edit-btn:hover {
+    background: #bfdbfe;
 }
 
 .delete-warning {
@@ -506,20 +590,6 @@ input:focus, select:focus {
 .confirm-delete-btn:hover {
     transform: translateY(-1px);
     box-shadow: 0 6px 14px rgba(239, 68, 68, 0.3);
-}
-
-.edit-btn {
-    background: #dbeafe;
-    color: #1e3a8a;
-    border: none;
-    padding: 8px;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.edit-btn:hover {
-    background: #bfdbfe;
 }
 
 .info-row {
