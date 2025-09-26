@@ -39,7 +39,7 @@ function toggleDropdown(id) {
 
 // Cerrar dropdowns al hacer clic fuera
 window.onclick = function(event) {
-    if (!event.target.matches('.btn')) {
+    if (!event.target.closest('.dropdown')) {
         document.querySelectorAll('.dropdown-content').forEach(d => {
             d.classList.remove('show');
         });
