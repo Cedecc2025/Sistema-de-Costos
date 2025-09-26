@@ -113,6 +113,36 @@ function crearClienteSupabaseMock() {
                             }
                         };
                     },
+                    update(payload = {}) {
+                        const contexto = { payload, id: null };
+                        const builder = {
+                            eq(columna, valor) {
+                                if (columna === 'id') {
+                                    contexto.id = valor;
+                                }
+                                return builder;
+                            },
+                            select() {
+                                return {
+                                    single() {
+                                        return Promise.resolve({
+                                            data: {
+                                                id: contexto.id ?? 99,
+                                                nombre: payload.nombre ?? 'Mock Editado',
+                                                tipo: payload.tipo ?? 'producto',
+                                                moneda: payload.moneda ?? 'CRC',
+                                                costo_unitario: payload.costo_unitario ?? 0,
+                                                precio_venta: payload.precio_venta ?? 0,
+                                                unidades_vendidas: payload.unidades_vendidas ?? 0
+                                            },
+                                            error: null
+                                        });
+                                    }
+                                };
+                            }
+                        };
+                        return builder;
+                    },
                     delete() {
                         return {
                             eq() {

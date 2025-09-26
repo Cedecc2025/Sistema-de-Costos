@@ -114,6 +114,9 @@ let state = crearEstadoInicial();
 
 let usuarioActual = null;
 
+let productoEditandoId = null;
+let productoEditandoOriginal = null;
+
 // Configuración de monedas
 const monedas = {
     CRC: { simbolo: '₡', nombre: 'Colones', decimales: 0 },
@@ -197,6 +200,7 @@ function configurarAutenticacion() {
             sessionStorage.setItem('usuarioNombre', usuario.username);
         }
         state = crearEstadoInicial();
+        cancelarEdicionProducto();
         cargarDatos();
         actualizarVistas();
         if (loginError) {
@@ -242,6 +246,7 @@ function configurarAutenticacion() {
             if (tasaCambioInput) {
                 tasaCambioInput.value = state.tasaCambio;
             }
+            cancelarEdicionProducto();
             actualizarVistas();
             usuarioActual = null;
             mostrarFormularioLogin();
@@ -396,9 +401,25 @@ async function agregarProducto() {
     const precio = parseFloat(document.getElementById('prod-precio').value) || 0;
     const unidades = parseInt(document.getElementById('prod-unidades').value) || 0;
 
-    if (nombre && costo > 0 && precio > 0) {
-        let productoParaEstado = {
-            id: Date.now(),
+    if (!nombre || costo <= 0 || precio <= 0) {
+        alert('Por favor completa todos los campos requeridos');
+        return;
+    }
+
+    if (productoEditandoId !== null) {
+        const indice = state.productos.findIndex(p => p.id === productoEditandoId);
+        if (indice === -1) {
+            alert('No se encontró el producto que intentas editar.');
+            cancelarEdicionProducto();
+            return;
+        }
+
+        const productoAnterior = productoEditandoOriginal
+            ? { ...productoEditandoOriginal }
+            : { ...state.productos[indice] };
+
+        let productoActualizado = {
+            ...state.productos[indice],
             nombre,
             tipo,
             moneda,
@@ -407,20 +428,25 @@ async function agregarProducto() {
             unidadesVendidas: unidades
         };
 
+        state.productos[indice] = productoActualizado;
+        actualizarVistas();
+        guardarDatos();
+
         const cliente = obtenerClienteSupabase();
         if (cliente && usuarioActual && usuarioActual.id) {
             try {
                 const { data, error } = await cliente
                     .from('productos')
-                    .insert([{
-                        usuario_id: usuarioActual.id,
+                    .update({
                         nombre,
                         tipo,
                         moneda,
                         costo_unitario: costo,
                         precio_venta: precio,
                         unidades_vendidas: unidades
-                    }])
+                    })
+                    .eq('id', productoEditandoId)
+                    .eq('usuario_id', usuarioActual.id)
                     .select('id, nombre, tipo, moneda, costo_unitario, precio_venta, unidades_vendidas')
                     .single();
 
@@ -430,29 +456,164 @@ async function agregarProducto() {
 
                 const productoSupabase = mapearProductoDeSupabase(data);
                 if (productoSupabase) {
-                    productoParaEstado = productoSupabase;
+                    productoActualizado = productoSupabase;
+                    state.productos[indice] = productoSupabase;
                 }
             } catch (error) {
-                console.error('Error al guardar producto en Supabase:', error);
-                alert('El producto se guardó localmente pero no en la base de datos. Intenta nuevamente cuando tengas conexión.');
+                console.error('Error al actualizar producto en Supabase:', error);
+                state.productos[indice] = productoAnterior;
+                productoEditandoOriginal = { ...productoAnterior };
+                actualizarVistas();
+                guardarDatos();
+                alert('No se pudo actualizar el producto en la base de datos. Intenta nuevamente.');
+                return;
             }
         } else if (usuarioActual && usuarioActual.id) {
-            alert('No se pudo conectar con la base de datos. El producto se guardará localmente.');
+            alert('No se pudo conectar con la base de datos. Los cambios se guardaron localmente.');
         }
 
-        state.productos.push(productoParaEstado);
-
-        // Limpiar formulario
-        document.getElementById('prod-nombre').value = '';
-        document.getElementById('prod-costo').value = '';
-        document.getElementById('prod-precio').value = '';
-        document.getElementById('prod-unidades').value = '';
-        
+        cancelarEdicionProducto();
         actualizarVistas();
         guardarDatos();
-    } else {
-        alert('Por favor completa todos los campos requeridos');
+        return;
     }
+
+    let productoParaEstado = {
+        id: Date.now(),
+        nombre,
+        tipo,
+        moneda,
+        costoUnitario: costo,
+        precioVenta: precio,
+        unidadesVendidas: unidades
+    };
+
+    const cliente = obtenerClienteSupabase();
+    if (cliente && usuarioActual && usuarioActual.id) {
+        try {
+            const { data, error } = await cliente
+                .from('productos')
+                .insert([
+                    {
+                        usuario_id: usuarioActual.id,
+                        nombre,
+                        tipo,
+                        moneda,
+                        costo_unitario: costo,
+                        precio_venta: precio,
+                        unidades_vendidas: unidades
+                    }
+                ])
+                .select('id, nombre, tipo, moneda, costo_unitario, precio_venta, unidades_vendidas')
+                .single();
+
+            if (error) {
+                throw error;
+            }
+
+            const productoSupabase = mapearProductoDeSupabase(data);
+            if (productoSupabase) {
+                productoParaEstado = productoSupabase;
+            }
+        } catch (error) {
+            console.error('Error al guardar producto en Supabase:', error);
+            alert('El producto se guardó localmente pero no en la base de datos. Intenta nuevamente cuando tengas conexión.');
+        }
+    } else if (usuarioActual && usuarioActual.id) {
+        alert('No se pudo conectar con la base de datos. El producto se guardará localmente.');
+    }
+
+    state.productos.push(productoParaEstado);
+
+    document.getElementById('prod-nombre').value = '';
+    document.getElementById('prod-costo').value = '';
+    document.getElementById('prod-precio').value = '';
+    document.getElementById('prod-unidades').value = '';
+
+    actualizarVistas();
+    guardarDatos();
+}
+
+function prepararEdicionProducto(id) {
+    const producto = state.productos.find(p => p.id === id);
+    if (!producto) {
+        return;
+    }
+
+    productoEditandoId = id;
+    productoEditandoOriginal = { ...producto };
+
+    const nombreInput = document.getElementById('prod-nombre');
+    const tipoSelect = document.getElementById('prod-tipo');
+    const monedaSelect = document.getElementById('prod-moneda');
+    const costoInput = document.getElementById('prod-costo');
+    const precioInput = document.getElementById('prod-precio');
+    const unidadesInput = document.getElementById('prod-unidades');
+
+    if (nombreInput) {
+        nombreInput.value = producto.nombre ?? '';
+        setTimeout(() => {
+            nombreInput.focus();
+            if (typeof nombreInput.select === 'function') {
+                nombreInput.select();
+            }
+        }, 0);
+    }
+    if (tipoSelect && producto.tipo) {
+        tipoSelect.value = producto.tipo;
+    }
+    if (monedaSelect && producto.moneda) {
+        monedaSelect.value = producto.moneda;
+    }
+    if (costoInput) {
+        costoInput.value = producto.costoUnitario ?? '';
+    }
+    if (precioInput) {
+        precioInput.value = producto.precioVenta ?? '';
+    }
+    if (unidadesInput) {
+        unidadesInput.value = producto.unidadesVendidas ?? '';
+    }
+
+    const titulo = document.getElementById('prod-form-title');
+    if (titulo) {
+        titulo.textContent = 'Editar Producto/Servicio';
+    }
+
+    const submitBtn = document.getElementById('prod-submit');
+    if (submitBtn) {
+        submitBtn.textContent = '💾 Guardar Cambios';
+    }
+
+    const cancelarBtn = document.getElementById('prod-cancelar');
+    if (cancelarBtn) {
+        cancelarBtn.style.display = 'inline-flex';
+    }
+
+    actualizarListaProductos();
+}
+
+function cancelarEdicionProducto() {
+    productoEditandoId = null;
+    productoEditandoOriginal = null;
+
+    const nombreInput = document.getElementById('prod-nombre');
+    const costoInput = document.getElementById('prod-costo');
+    const precioInput = document.getElementById('prod-precio');
+    const unidadesInput = document.getElementById('prod-unidades');
+    const titulo = document.getElementById('prod-form-title');
+    const submitBtn = document.getElementById('prod-submit');
+    const cancelarBtn = document.getElementById('prod-cancelar');
+
+    if (nombreInput) nombreInput.value = '';
+    if (costoInput) costoInput.value = '';
+    if (precioInput) precioInput.value = '';
+    if (unidadesInput) unidadesInput.value = '';
+    if (titulo) titulo.textContent = 'Agregar Producto/Servicio';
+    if (submitBtn) submitBtn.textContent = '➕ Agregar Producto';
+    if (cancelarBtn) cancelarBtn.style.display = 'none';
+
+    actualizarListaProductos();
 }
 
 async function eliminarProducto(id) {
@@ -661,9 +822,10 @@ function actualizarListaProductos() {
     lista.innerHTML = state.productos.map(producto => {
         const margen = calcularMargenContribucion(producto);
         const margenPorcentaje = calcularMargenPorcentaje(producto);
-        
+        const editando = productoEditandoId === producto.id;
+
         return `
-            <div class="product-card">
+            <div class="product-card${editando ? ' editing' : ''}">
                 <div style="display: flex; justify-content: space-between; align-items: start;">
                     <div style="flex: 1;">
                         <div style="margin-bottom: 10px;">
@@ -694,9 +856,14 @@ function actualizarListaProductos() {
                             </div>
                         </div>
                     </div>
-                    <button class="delete-btn" onclick="eliminarProducto(${producto.id})">
-                        🗑️
-                    </button>
+                    <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-end;">
+                        <button class="edit-btn" onclick="prepararEdicionProducto(${producto.id})" title="Editar producto">
+                            ✏️
+                        </button>
+                        <button class="delete-btn" onclick="eliminarProducto(${producto.id})">
+                            🗑️
+                        </button>
+                    </div>
                 </div>
             </div>
         `;

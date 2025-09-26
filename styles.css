@@ -278,6 +278,11 @@ input:focus, select:focus {
     border: 2px solid transparent;
 }
 
+.product-card.editing {
+    border-color: #fbbf24;
+    box-shadow: 0 10px 25px rgba(251, 191, 36, 0.3);
+}
+
 .product-card:hover, .cost-card:hover, .transaction-card:hover {
     border-color: #667eea;
     transform: translateY(-2px);
@@ -432,6 +437,20 @@ input:focus, select:focus {
 
 .delete-btn:hover {
     background: #fecaca;
+}
+
+.edit-btn {
+    background: #dbeafe;
+    color: #1e3a8a;
+    border: none;
+    padding: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.edit-btn:hover {
+    background: #bfdbfe;
 }
 
 .info-row {

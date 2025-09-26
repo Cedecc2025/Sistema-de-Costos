@@ -115,7 +115,7 @@
                 <h2 style="color: #2d3748; margin-bottom: 20px;">Productos y Servicios</h2>
                 
                 <div style="background: linear-gradient(135deg, #f0f4ff 0%, #e9ecef 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
-                    <h3 style="color: #4a5568; margin-bottom: 20px;">Agregar Producto/Servicio</h3>
+                    <h3 id="prod-form-title" style="color: #4a5568; margin-bottom: 20px;">Agregar Producto/Servicio</h3>
                     <div class="form-row">
                         <div>
                             <label>Nombre</label>
@@ -148,11 +148,16 @@
                             <input type="number" id="prod-unidades" placeholder="0">
                         </div>
                     </div>
-                    <button class="btn" onclick="agregarProducto()">
-                        ➕ Agregar Producto
-                    </button>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <button id="prod-submit" class="btn" onclick="agregarProducto()">
+                            ➕ Agregar Producto
+                        </button>
+                        <button id="prod-cancelar" class="btn btn-secondary" type="button" onclick="cancelarEdicionProducto()" style="display: none;">
+                            ✖️ Cancelar edición
+                        </button>
+                    </div>
                 </div>
-                
+
                 <div id="lista-productos"></div>
             </div>
 
