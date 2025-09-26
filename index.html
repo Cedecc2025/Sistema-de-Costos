@@ -8,9 +8,27 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <div id="loginContainer" class="login-wrapper hidden">
+        <form id="loginForm" class="login-card">
+            <div class="login-header">
+                <div class="login-icon">🔐</div>
+                <div>
+                    <h2>Iniciar sesión</h2>
+                    <p class="login-subtitle">Ingresa tus credenciales para acceder al sistema</p>
+                </div>
+            </div>
+            <div class="login-group">
+                <label for="loginUsuario">Usuario</label>
+                <input type="text" id="loginUsuario" placeholder="admin" autocomplete="username" required>
+            </div>
+            <p id="loginError" class="login-error" role="alert" aria-live="polite"></p>
+            <button type="submit" class="btn btn-login">Ingresar</button>
+        </form>
+    </div>
+
     <div id="loading">✓ Datos guardados</div>
-    
-    <div class="container">
+
+    <div class="container hidden">
         <!-- Header Principal -->
         <div class="card">
             <div class="header">
@@ -25,7 +43,7 @@
                     <p class="subtitle">Gestiona costos, calcula punto de equilibrio y controla tu flujo de caja</p>
                 </div>
                 
-                <div style="display: flex; gap: 10px;">
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <div class="dropdown">
                         <button class="btn btn-secondary" onclick="toggleDropdown('dataMenu')">
                             📊 Datos ▼
@@ -64,6 +82,9 @@
                             </div>
                         </div>
                     </div>
+                    <button id="logoutButton" class="btn btn-logout" type="button">
+                        🚪 Cerrar sesión
+                    </button>
                 </div>
             </div>
         </div>
@@ -294,6 +315,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>
 </body>
 </html>

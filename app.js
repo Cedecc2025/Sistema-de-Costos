@@ -1,3 +1,37 @@
+// Credenciales Supabase
+const SUPABASE_URL = 'https://jsjwgjaprgymeonsadny.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzandnamFwcmd5bWVvbnNhZG55Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2MzY5NjQsImV4cCI6MjA3NDIxMjk2NH0.4fjXkdOCyaubZuVIZNeViaA6MfdDK-4pdH9h-Ty2bfk';
+
+let supabaseClient = null;
+
+function obtenerClienteSupabase() {
+    if (supabaseClient) return supabaseClient;
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+    return supabaseClient;
+}
+
+async function buscarUsuarioEnSupabase(username) {
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) {
+        throw new Error('Supabase no está disponible');
+    }
+
+    const patron = username.replace(/[\%_]/g, '\\$&');
+    const { data, error } = await cliente
+        .from('usuarios')
+        .select('id, username')
+        .ilike('username', patron)
+        .limit(1);
+
+    if (error) {
+        throw error;
+    }
+
+    return Array.isArray(data) ? data[0] : null;
+}
+
 // Estado Global
 let state = {
     productos: [],
@@ -7,6 +41,8 @@ let state = {
     tasaCambio: 520
 };
 
+let usuarioActual = null;
+
 // Configuración de monedas
 const monedas = {
     CRC: { simbolo: '₡', nombre: 'Colones', decimales: 0 },
@@ -15,16 +51,149 @@ const monedas = {
 
 // Charts globales
 let flujoChart, margenChart, equilibrioChart;
+let appInicializada = false;
 
 // Inicialización
 window.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('trans-fecha').value = new Date().toISOString().split('T')[0];
-    document.getElementById('mes-seleccionado').value = new Date().toISOString().slice(0, 7);
-    
+    configurarAutenticacion();
+});
+
+function inicializarAplicacion() {
+    if (appInicializada) return;
+
+    const fechaTransaccion = document.getElementById('trans-fecha');
+    const mesSeleccionado = document.getElementById('mes-seleccionado');
+
+    if (fechaTransaccion) {
+        fechaTransaccion.value = new Date().toISOString().split('T')[0];
+    }
+
+    if (mesSeleccionado) {
+        mesSeleccionado.value = new Date().toISOString().slice(0, 7);
+    }
+
     cargarDatos();
     inicializarGraficos();
     actualizarVistas();
-});
+
+    appInicializada = true;
+}
+
+function configurarAutenticacion() {
+    const loginContainer = document.getElementById('loginContainer');
+    const mainContainer = document.querySelector('.container');
+    const loginForm = document.getElementById('loginForm');
+    const loginError = document.getElementById('loginError');
+    const loginUsuario = document.getElementById('loginUsuario');
+    const loginSubmit = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
+    const logoutButton = document.getElementById('logoutButton');
+
+    if (!loginContainer || !mainContainer || !loginForm) {
+        inicializarAplicacion();
+        return;
+    }
+
+    const mostrarFormularioLogin = () => {
+        loginContainer.classList.remove('hidden');
+        mainContainer.classList.add('hidden');
+        if (loginForm) {
+            loginForm.reset();
+        }
+        if (loginError) {
+            loginError.textContent = '';
+        }
+        if (loginUsuario) {
+            setTimeout(() => loginUsuario.focus(), 50);
+        }
+    };
+
+    const manejarSesionActiva = (usuario) => {
+        if (!usuario) return;
+        usuarioActual = usuario;
+        sessionStorage.setItem('usuarioAutenticado', 'true');
+        if (usuario.id) {
+            sessionStorage.setItem('usuarioId', String(usuario.id));
+        }
+        if (usuario.username) {
+            sessionStorage.setItem('usuarioNombre', usuario.username);
+        }
+        if (loginError) {
+            loginError.textContent = '';
+        }
+        loginContainer.classList.add('hidden');
+        mainContainer.classList.remove('hidden');
+        if (loginForm) {
+            loginForm.reset();
+        }
+        inicializarAplicacion();
+    };
+
+    if (logoutButton) {
+        logoutButton.addEventListener('click', () => {
+            ['usuarioAutenticado', 'usuarioId', 'usuarioNombre'].forEach((clave) => {
+                sessionStorage.removeItem(clave);
+            });
+            usuarioActual = null;
+            mostrarFormularioLogin();
+        });
+    }
+
+    const sesionPersistida = sessionStorage.getItem('usuarioAutenticado') === 'true';
+    if (sesionPersistida) {
+        const usernamePersistido = sessionStorage.getItem('usuarioNombre') || 'admin';
+        const idPersistido = sessionStorage.getItem('usuarioId');
+        manejarSesionActiva({ username: usernamePersistido, id: idPersistido ? parseInt(idPersistido, 10) : undefined });
+        return;
+    }
+
+    mostrarFormularioLogin();
+
+    loginForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        const usuario = loginUsuario ? loginUsuario.value.trim() : '';
+
+        if (loginError) {
+            loginError.textContent = '';
+        }
+
+        if (!usuario) {
+            if (loginError) {
+                loginError.textContent = 'Por favor, ingresa tu usuario.';
+            }
+            return;
+        }
+
+        const botonOriginal = loginSubmit ? loginSubmit.textContent : '';
+        if (loginSubmit) {
+            loginSubmit.disabled = true;
+            loginSubmit.textContent = 'Verificando...';
+        }
+
+        try {
+            const usuarioEncontrado = await buscarUsuarioEnSupabase(usuario);
+
+            if (!usuarioEncontrado) {
+                if (loginError) {
+                    loginError.textContent = 'Usuario no autorizado. Verifica tus credenciales.';
+                }
+                return;
+            }
+
+            manejarSesionActiva({ username: usuarioEncontrado.username, id: usuarioEncontrado.id });
+        } catch (error) {
+            console.error('Error al verificar usuario en Supabase:', error);
+            if (loginError) {
+                loginError.textContent = 'No se pudo validar el usuario. Intenta nuevamente en unos minutos.';
+            }
+        } finally {
+            if (loginSubmit) {
+                loginSubmit.disabled = false;
+                loginSubmit.textContent = botonOriginal || 'Ingresar';
+            }
+        }
+    });
+}
 
 // Funciones de UI
 function toggleDropdown(id) {
@@ -39,7 +208,7 @@ function toggleDropdown(id) {
 
 // Cerrar dropdowns al hacer clic fuera
 window.onclick = function(event) {
-    if (!event.target.matches('.btn')) {
+    if (!event.target.closest('.dropdown')) {
         document.querySelectorAll('.dropdown-content').forEach(d => {
             d.classList.remove('show');
         });
