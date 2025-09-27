@@ -353,13 +353,15 @@ input:focus, select:focus {
 }
 
 .product-card.editing,
-.cost-card.editing {
+.cost-card.editing,
+.transaction-card.editing {
     border-color: #fbbf24;
     box-shadow: 0 10px 25px rgba(251, 191, 36, 0.3);
 }
 
 .product-card.confirming-delete,
-.cost-card.confirming-delete {
+.cost-card.confirming-delete,
+.transaction-card.confirming-delete {
     border-color: #f87171;
     box-shadow: 0 10px 25px rgba(248, 113, 113, 0.25);
 }

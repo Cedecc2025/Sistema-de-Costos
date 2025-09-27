@@ -83,6 +83,26 @@ function mapearCostoFijoDeSupabase(fila) {
     };
 }
 
+function mapearTransaccionDeSupabase(fila) {
+    if (!fila) return null;
+
+    const parseNumero = (valor) => {
+        if (valor === null || valor === undefined || valor === '') return 0;
+        const numero = typeof valor === 'number' ? valor : parseFloat(valor);
+        return Number.isNaN(numero) ? 0 : numero;
+    };
+
+    return {
+        id: fila.id,
+        fecha: fila.fecha,
+        tipo: fila.tipo,
+        categoria: fila.categoria,
+        concepto: fila.concepto,
+        moneda: fila.moneda,
+        monto: parseNumero(fila.monto)
+    };
+}
+
 async function sincronizarProductosDesdeSupabase() {
     if (!usuarioActual || !usuarioActual.id) return;
 
@@ -151,6 +171,41 @@ async function sincronizarCostosFijosDesdeSupabase() {
     }
 }
 
+async function sincronizarFlujoCajaDesdeSupabase() {
+    if (!usuarioActual || !usuarioActual.id) return;
+
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) return;
+
+    try {
+        const { data, error } = await cliente
+            .from('flujo_caja')
+            .select('id, fecha, tipo, categoria, concepto, moneda, monto, created_at')
+            .eq('usuario_id', usuarioActual.id)
+            .order('fecha', { ascending: false });
+
+        if (error) {
+            throw error;
+        }
+
+        if (Array.isArray(data)) {
+            const transaccionesRemotas = data
+                .map(mapearTransaccionDeSupabase)
+                .filter(Boolean)
+                .sort((a, b) => new Date(b.fecha) - new Date(a.fecha) || (a.id - b.id));
+            const transaccionesLocales = Array.isArray(state.transacciones) ? state.transacciones : [];
+            const idsRemotos = new Set(transaccionesRemotas.map(t => t.id));
+            const transaccionesNoSincronizadas = transaccionesLocales.filter(t => !idsRemotos.has(t.id));
+
+            state.transacciones = [...transaccionesRemotas, ...transaccionesNoSincronizadas];
+            actualizarVistas();
+            guardarDatos();
+        }
+    } catch (error) {
+        console.error('Error al cargar flujo de caja desde Supabase:', error);
+    }
+}
+
 // Estado Global
 function crearEstadoInicial() {
     return {
@@ -172,6 +227,9 @@ let productoConfirmandoEliminarId = null;
 let costoFijoEditandoId = null;
 let costoFijoEditandoOriginal = null;
 let costoFijoConfirmandoEliminarId = null;
+let transaccionEditandoId = null;
+let transaccionEditandoOriginal = null;
+let transaccionConfirmandoEliminarId = null;
 
 // Configuración de monedas
 const monedas = {
@@ -258,6 +316,7 @@ function configurarAutenticacion() {
         state = crearEstadoInicial();
         cancelarEdicionProducto();
         cancelarEdicionCostoFijo();
+        cancelarEdicionTransaccion();
         cargarDatos();
         actualizarVistas();
         if (loginError) {
@@ -271,6 +330,7 @@ function configurarAutenticacion() {
         inicializarAplicacion();
         sincronizarProductosDesdeSupabase();
         sincronizarCostosFijosDesdeSupabase();
+        sincronizarFlujoCajaDesdeSupabase();
     };
 
     if (logoutButton) {
@@ -306,6 +366,7 @@ function configurarAutenticacion() {
             }
             cancelarEdicionProducto();
             cancelarEdicionCostoFijo();
+            cancelarEdicionTransaccion();
             actualizarVistas();
             usuarioActual = null;
             mostrarFormularioLogin();
@@ -1011,47 +1072,151 @@ async function eliminarCostoFijo(id) {
 }
 
 // CRUD Transacciones
-function agregarTransaccion() {
+async function agregarTransaccion() {
     const fecha = document.getElementById('trans-fecha').value;
     const tipo = document.getElementById('trans-tipo').value;
     const concepto = document.getElementById('trans-concepto').value;
     const moneda = document.getElementById('trans-moneda').value;
     const monto = parseFloat(document.getElementById('trans-monto').value) || 0;
     const categoria = document.getElementById('trans-categoria').value;
-    
-    if (concepto && monto > 0) {
-        state.transacciones.push({
-            id: Date.now(),
-            fecha,
-            tipo,
-            concepto,
-            moneda,
-            monto,
-            categoria
-        });
-        
-        document.getElementById('trans-concepto').value = '';
-        document.getElementById('trans-monto').value = '';
-        
+
+    if (!fecha || !tipo || !concepto || !moneda || !categoria || monto <= 0) {
+        alert('Por favor completa todos los campos requeridos');
+        return;
+    }
+
+    const transaccionDatos = { fecha, tipo, concepto, moneda, monto, categoria };
+    const cliente = obtenerClienteSupabase();
+    const puedeSincronizar = cliente && usuarioActual && usuarioActual.id;
+
+    if (transaccionEditandoId !== null) {
+        const indice = state.transacciones.findIndex(t => t.id === transaccionEditandoId);
+        if (indice === -1) {
+            alert('No se encontró la transacción a actualizar.');
+            cancelarEdicionTransaccion();
+            return;
+        }
+
+        if (puedeSincronizar) {
+            try {
+                const { error } = await cliente
+                    .from('flujo_caja')
+                    .update({
+                        fecha,
+                        tipo,
+                        categoria,
+                        concepto,
+                        moneda,
+                        monto
+                    })
+                    .eq('id', transaccionEditandoId)
+                    .eq('usuario_id', usuarioActual.id);
+
+                if (error) {
+                    throw error;
+                }
+            } catch (error) {
+                console.error('Error al actualizar la transacción en Supabase:', error);
+                alert('No se pudo actualizar la transacción en la base de datos. Intenta nuevamente.');
+                return;
+            }
+        }
+
+        state.transacciones[indice] = {
+            ...state.transacciones[indice],
+            ...transaccionDatos
+        };
+
+        cancelarEdicionTransaccion();
         actualizarVistas();
         guardarDatos();
-    } else {
-        alert('Por favor completa todos los campos requeridos');
+        return;
     }
+
+    const nuevaTransaccion = {
+        id: Date.now(),
+        ...transaccionDatos
+    };
+
+    if (puedeSincronizar) {
+        try {
+            const { data, error } = await cliente
+                .from('flujo_caja')
+                .insert([{ ...transaccionDatos, usuario_id: usuarioActual.id }])
+                .select()
+                .single();
+
+            if (error) {
+                throw error;
+            }
+
+            if (data && data.id) {
+                nuevaTransaccion.id = data.id;
+            }
+        } catch (error) {
+            console.error('Error al crear la transacción en Supabase:', error);
+            alert('No se pudo crear la transacción en la base de datos. Intenta nuevamente.');
+            return;
+        }
+    }
+
+    state.transacciones.push(nuevaTransaccion);
+
+    document.getElementById('trans-concepto').value = '';
+    document.getElementById('trans-monto').value = '';
+
+    actualizarVistas();
+    guardarDatos();
 }
 
-function eliminarTransaccion(id) {
-    if (confirm('¿Estás seguro de eliminar esta transacción?')) {
-        state.transacciones = state.transacciones.filter(t => t.id !== id);
-        actualizarVistas();
-        guardarDatos();
+async function eliminarTransaccion(id) {
+    const transaccion = state.transacciones.find(t => t.id === id);
+    if (!transaccion) {
+        return;
     }
+
+    const cliente = obtenerClienteSupabase();
+    const puedeSincronizar = cliente && usuarioActual && usuarioActual.id;
+
+    if (puedeSincronizar) {
+        try {
+            const { error } = await cliente
+                .from('flujo_caja')
+                .delete()
+                .eq('id', id)
+                .eq('usuario_id', usuarioActual.id);
+
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error al eliminar la transacción en Supabase:', error);
+            alert('No se pudo eliminar la transacción de la base de datos. Intenta nuevamente.');
+            return;
+        }
+    }
+
+    if (transaccionEditandoId === id) {
+        cancelarEdicionTransaccion();
+    } else {
+        transaccionConfirmandoEliminarId = null;
+    }
+
+    state.transacciones = state.transacciones.filter(t => t.id !== id);
+    actualizarVistas();
+    guardarDatos();
 }
 
 function actualizarCategorias() {
-    const tipo = document.getElementById('trans-tipo').value;
+    const tipoSelect = document.getElementById('trans-tipo');
     const select = document.getElementById('trans-categoria');
-    
+
+    if (!tipoSelect || !select) {
+        return;
+    }
+
+    const tipo = tipoSelect.value;
+
     if (tipo === 'ingreso') {
         select.innerHTML = `
             <option value="venta">Venta</option>
@@ -1067,6 +1232,83 @@ function actualizarCategorias() {
             <option value="otro">Otro</option>
         `;
     }
+}
+
+function prepararEdicionTransaccion(id) {
+    const transaccion = state.transacciones.find(t => t.id === id);
+    if (!transaccion) {
+        return;
+    }
+
+    transaccionEditandoId = id;
+    transaccionEditandoOriginal = { ...transaccion };
+    transaccionConfirmandoEliminarId = null;
+
+    const fechaInput = document.getElementById('trans-fecha');
+    const tipoSelect = document.getElementById('trans-tipo');
+    const conceptoInput = document.getElementById('trans-concepto');
+    const monedaSelect = document.getElementById('trans-moneda');
+    const montoInput = document.getElementById('trans-monto');
+    const categoriaSelect = document.getElementById('trans-categoria');
+    const titulo = document.getElementById('trans-form-title');
+    const submitBtn = document.getElementById('trans-submit');
+    const cancelarBtn = document.getElementById('trans-cancelar');
+
+    if (fechaInput) fechaInput.value = transaccion.fecha;
+    if (tipoSelect) {
+        tipoSelect.value = transaccion.tipo;
+        actualizarCategorias();
+    }
+    if (conceptoInput) conceptoInput.value = transaccion.concepto;
+    if (monedaSelect) monedaSelect.value = transaccion.moneda;
+    if (montoInput) montoInput.value = transaccion.monto;
+    if (categoriaSelect) categoriaSelect.value = transaccion.categoria;
+    if (titulo) titulo.textContent = 'Editar Transacción';
+    if (submitBtn) submitBtn.textContent = '💾 Guardar Cambios';
+    if (cancelarBtn) cancelarBtn.style.display = 'inline-flex';
+
+    actualizarListaTransacciones();
+}
+
+function cancelarEdicionTransaccion() {
+    transaccionEditandoId = null;
+    transaccionEditandoOriginal = null;
+    transaccionConfirmandoEliminarId = null;
+
+    const conceptoInput = document.getElementById('trans-concepto');
+    const montoInput = document.getElementById('trans-monto');
+    const titulo = document.getElementById('trans-form-title');
+    const submitBtn = document.getElementById('trans-submit');
+    const cancelarBtn = document.getElementById('trans-cancelar');
+
+    if (conceptoInput) conceptoInput.value = '';
+    if (montoInput) montoInput.value = '';
+    if (titulo) titulo.textContent = 'Agregar Transacción';
+    if (submitBtn) submitBtn.textContent = '➕ Agregar Transacción';
+    if (cancelarBtn) cancelarBtn.style.display = 'none';
+
+    actualizarCategorias();
+    actualizarListaTransacciones();
+}
+
+function mostrarAdvertenciaEliminarTransaccion(id) {
+    if (transaccionConfirmandoEliminarId === id) {
+        transaccionConfirmandoEliminarId = null;
+    } else {
+        transaccionConfirmandoEliminarId = id;
+    }
+    actualizarListaTransacciones();
+}
+
+function cancelarEliminacionTransaccion() {
+    if (transaccionConfirmandoEliminarId !== null) {
+        transaccionConfirmandoEliminarId = null;
+        actualizarListaTransacciones();
+    }
+}
+
+function confirmarEliminacionTransaccion(id) {
+    eliminarTransaccion(id);
 }
 
 // Cálculos
@@ -1310,9 +1552,16 @@ function actualizarListaCostos() {
 
 function actualizarListaTransacciones() {
     const lista = document.getElementById('lista-transacciones');
-    const mes = document.getElementById('mes-seleccionado').value;
-    const transaccionesMes = state.transacciones.filter(t => t.fecha.startsWith(mes));
-    
+    if (!lista) {
+        return;
+    }
+
+    const mesSelector = document.getElementById('mes-seleccionado');
+    const mes = mesSelector && mesSelector.value ? mesSelector.value : '';
+    const transaccionesMes = mes
+        ? state.transacciones.filter(t => typeof t.fecha === 'string' && t.fecha.startsWith(mes))
+        : [...state.transacciones];
+
     if (transaccionesMes.length === 0) {
         lista.innerHTML = `
             <div class="empty-state">
@@ -1326,64 +1575,108 @@ function actualizarListaTransacciones() {
         `;
         return;
     }
-    
+
     lista.innerHTML = transaccionesMes
         .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
-        .map(trans => `
-            <div class="transaction-card">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex: 1;">
-                        <div style="margin-bottom: 10px;">
-                            <span style="font-size: 18px; font-weight: 600; color: #2d3748;">${trans.concepto}</span>
-                            <span class="badge ${trans.tipo === 'ingreso' ? 'badge-green' : 'badge-red'}">${trans.tipo}</span>
-                            <span class="badge badge-blue">${trans.categoria}</span>
+        .map(trans => {
+            const editando = transaccionEditandoId === trans.id;
+            const confirmando = transaccionConfirmandoEliminarId === trans.id;
+            const clasesTarjeta = [
+                'transaction-card',
+                editando ? 'editing' : '',
+                confirmando ? 'confirming-delete' : ''
+            ].filter(Boolean).join(' ');
+
+            return `
+                <div class="${clasesTarjeta}">
+                    <div class="product-card-header">
+                        <div class="product-card-main">
+                            <div class="product-card-title">
+                                <span class="product-name">${trans.concepto}</span>
+                                <span class="badge ${trans.tipo === 'ingreso' ? 'badge-green' : 'badge-red'}">${trans.tipo}</span>
+                                <span class="badge badge-blue">${trans.categoria}</span>
+                            </div>
+                            <div class="product-metrics-grid">
+                                <div>
+                                    <span class="info-label">Fecha</span>
+                                    <p class="info-value">${trans.fecha}</p>
+                                </div>
+                                <div>
+                                    <span class="info-label">Monto</span>
+                                    <p class="info-value" style="color: ${trans.tipo === 'ingreso' ? '#48bb78' : '#f56565'};">
+                                        ${trans.tipo === 'ingreso' ? '+' : '-'}${formatearMoneda(trans.monto, trans.moneda)}
+                                    </p>
+                                </div>
+                                <div>
+                                    <span class="info-label">Moneda</span>
+                                    <p class="info-value">${monedas[trans.moneda] ? `${monedas[trans.moneda].simbolo} ${trans.moneda}` : trans.moneda}</p>
+                                </div>
+                            </div>
                         </div>
-                        <div style="display: flex; gap: 30px;">
-                            <div>
-                                <span class="info-label">Fecha:</span>
-                                <span class="info-value">${trans.fecha}</span>
-                            </div>
-                            <div>
-                                <span class="info-label">Monto:</span>
-                                <span class="info-value" style="color: ${trans.tipo === 'ingreso' ? '#48bb78' : '#f56565'};">
-                                    ${trans.tipo === 'ingreso' ? '+' : '-'}${formatearMoneda(trans.monto, trans.moneda)}
-                                </span>
-                            </div>
+                        <div class="product-actions">
+                            <button class="product-action-btn edit-btn" type="button" onclick="prepararEdicionTransaccion(${trans.id})">
+                                <span class="product-action-icon">✏️</span>
+                                <span>Editar</span>
+                            </button>
+                            <button class="product-action-btn delete-btn" type="button" onclick="mostrarAdvertenciaEliminarTransaccion(${trans.id})">
+                                <span class="product-action-icon">🗑️</span>
+                                <span>Eliminar</span>
+                            </button>
                         </div>
                     </div>
-                    <button class="delete-btn" onclick="eliminarTransaccion(${trans.id})">
-                        🗑️
-                    </button>
+                    ${confirmando ? `
+                        <div class="delete-warning">
+                            <div class="warning-content">
+                                <span class="warning-icon">⚠️</span>
+                                <span class="warning-text">¿Deseas eliminar este registro? Esta acción no se puede deshacer.</span>
+                            </div>
+                            <div class="warning-actions">
+                                <button class="cancel-delete-btn" type="button" onclick="cancelarEliminacionTransaccion()">Cancelar</button>
+                                <button class="confirm-delete-btn" type="button" onclick="confirmarEliminacionTransaccion(${trans.id})">Eliminar</button>
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 }
 
 function actualizarFlujoCaja() {
-    const mes = document.getElementById('mes-seleccionado').value;
-    const transaccionesMes = state.transacciones.filter(t => t.fecha.startsWith(mes));
-    
+    const ingresosElemento = document.getElementById('flujo-ingresos');
+    const egresosElemento = document.getElementById('flujo-egresos');
+    const saldoElemento = document.getElementById('flujo-saldo');
+    const saldoCard = document.getElementById('saldo-card');
+
+    if (!ingresosElemento || !egresosElemento || !saldoElemento || !saldoCard) {
+        return;
+    }
+
+    const mesSelector = document.getElementById('mes-seleccionado');
+    const mes = mesSelector && mesSelector.value ? mesSelector.value : '';
+    const transaccionesMes = mes
+        ? state.transacciones.filter(t => typeof t.fecha === 'string' && t.fecha.startsWith(mes))
+        : [...state.transacciones];
+
     const ingresos = transaccionesMes
         .filter(t => t.tipo === 'ingreso')
         .reduce((sum, t) => sum + convertirMoneda(t.monto, t.moneda, state.moneda), 0);
-    
+
     const egresos = transaccionesMes
         .filter(t => t.tipo === 'egreso')
         .reduce((sum, t) => sum + convertirMoneda(t.monto, t.moneda, state.moneda), 0);
-    
+
     const saldo = ingresos - egresos;
-    
-    document.getElementById('flujo-ingresos').textContent = formatearMoneda(ingresos);
-    document.getElementById('flujo-egresos').textContent = formatearMoneda(egresos);
-    document.getElementById('flujo-saldo').textContent = formatearMoneda(saldo);
-    
-    const saldoCard = document.getElementById('saldo-card');
+
+    ingresosElemento.textContent = formatearMoneda(ingresos);
+    egresosElemento.textContent = formatearMoneda(egresos);
+    saldoElemento.textContent = formatearMoneda(saldo);
+
     if (saldo >= 0) {
         saldoCard.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
     } else {
         saldoCard.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
     }
-    
+
     actualizarListaTransacciones();
     actualizarGraficoFlujo();
 }
