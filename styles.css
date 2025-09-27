@@ -192,6 +192,24 @@ h1 {
     flex-wrap: wrap;
 }
 
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.section-header h2 {
+    margin: 0;
+}
+
+.btn-refresh-loading {
+    opacity: 0.7;
+    cursor: wait;
+}
+
 .tab {
     padding: 15px 30px;
     background: none;
@@ -353,13 +371,15 @@ input:focus, select:focus {
 }
 
 .product-card.editing,
-.cost-card.editing {
+.cost-card.editing,
+.transaction-card.editing {
     border-color: #fbbf24;
     box-shadow: 0 10px 25px rgba(251, 191, 36, 0.3);
 }
 
 .product-card.confirming-delete,
-.cost-card.confirming-delete {
+.cost-card.confirming-delete,
+.transaction-card.confirming-delete {
     border-color: #f87171;
     box-shadow: 0 10px 25px rgba(248, 113, 113, 0.25);
 }
