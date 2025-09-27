@@ -75,6 +75,34 @@ body {
     min-height: 18px;
 }
 
+.auth-toggle {
+    margin-top: 16px;
+    font-size: 14px;
+    color: #4a5568;
+    text-align: center;
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 14px;
+    color: #667eea;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.btn-link:hover,
+.btn-link:focus {
+    color: #5a67d8;
+    outline: none;
+}
+
 .btn-login {
     width: 100%;
     justify-content: center;

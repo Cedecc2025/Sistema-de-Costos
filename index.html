@@ -27,6 +27,38 @@
             </div>
             <p id="loginError" class="login-error" role="alert" aria-live="polite"></p>
             <button type="submit" class="btn btn-login">Ingresar</button>
+            <p class="auth-toggle">¿Aún no tienes cuenta?
+                <button type="button" id="showRegisterButton" class="btn-link">Registrarme</button>
+            </p>
+        </form>
+    </div>
+
+    <div id="registerContainer" class="login-wrapper hidden">
+        <form id="registerForm" class="login-card" novalidate>
+            <div class="login-header">
+                <div class="login-icon">🆕</div>
+                <div>
+                    <h2>Crear cuenta</h2>
+                    <p class="login-subtitle">Registra un usuario para sincronizar tus datos</p>
+                </div>
+            </div>
+            <div class="login-group">
+                <label for="registerUsuario">Nombre de usuario</label>
+                <input type="text" id="registerUsuario" autocomplete="username" placeholder="Ej: mi_negocio" required>
+            </div>
+            <div class="login-group">
+                <label for="registerPassword">Contraseña</label>
+                <input type="password" id="registerPassword" autocomplete="new-password" placeholder="Mínimo 6 caracteres" required>
+            </div>
+            <div class="login-group">
+                <label for="registerPasswordConfirm">Confirmar contraseña</label>
+                <input type="password" id="registerPasswordConfirm" autocomplete="new-password" placeholder="Repite tu contraseña" required>
+            </div>
+            <p id="registerError" class="login-error" role="alert" aria-live="polite"></p>
+            <button type="submit" class="btn btn-login" id="registerSubmit">Crear cuenta</button>
+            <p class="auth-toggle">¿Ya tienes una cuenta?
+                <button type="button" id="showLoginButton" class="btn-link">Iniciar sesión</button>
+            </p>
         </form>
     </div>
 

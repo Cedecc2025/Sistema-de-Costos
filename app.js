@@ -46,6 +46,50 @@ async function buscarUsuarioEnSupabase(username, password) {
     return { id: usuario.id, username: usuario.username };
 }
 
+async function registrarUsuarioEnSupabase(username, password) {
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) {
+        throw new Error('Supabase no está disponible');
+    }
+
+    const usuarioNormalizado = username.trim();
+    const patron = usuarioNormalizado.replace(/[\%_]/g, '\\$&');
+
+    const { data: existentes, error: errorBusqueda } = await cliente
+        .from('usuarios')
+        .select('id')
+        .ilike('username', patron)
+        .limit(1);
+
+    if (errorBusqueda) {
+        throw errorBusqueda;
+    }
+
+    if (Array.isArray(existentes) && existentes.length > 0) {
+        const error = new Error('El usuario ya existe');
+        error.code = 'USER_EXISTS';
+        throw error;
+    }
+
+    const { data, error } = await cliente
+        .from('usuarios')
+        .insert([{ username: usuarioNormalizado, password }])
+        .select('id, username')
+        .limit(1);
+
+    if (error) {
+        throw error;
+    }
+
+    const creado = Array.isArray(data) ? data[0] : data;
+
+    if (!creado) {
+        throw new Error('No se pudo registrar el usuario');
+    }
+
+    return { id: creado.id, username: creado.username };
+}
+
 function mapearProductoDeSupabase(fila) {
     if (!fila) return null;
     const parseNumero = (valor) => {
@@ -355,6 +399,15 @@ function configurarAutenticacion() {
     const loginPassword = document.getElementById('loginPassword');
     const loginSubmit = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
     const logoutButton = document.getElementById('logoutButton');
+    const registerContainer = document.getElementById('registerContainer');
+    const registerForm = document.getElementById('registerForm');
+    const registerError = document.getElementById('registerError');
+    const registerUsuario = document.getElementById('registerUsuario');
+    const registerPassword = document.getElementById('registerPassword');
+    const registerPasswordConfirm = document.getElementById('registerPasswordConfirm');
+    const registerSubmit = document.getElementById('registerSubmit');
+    const showRegisterButton = document.getElementById('showRegisterButton');
+    const showLoginButton = document.getElementById('showLoginButton');
 
     if (!loginContainer || !mainContainer || !loginForm) {
         inicializarAplicacion();
@@ -364,14 +417,40 @@ function configurarAutenticacion() {
     const mostrarFormularioLogin = () => {
         loginContainer.classList.remove('hidden');
         mainContainer.classList.add('hidden');
+        if (registerContainer) {
+            registerContainer.classList.add('hidden');
+        }
         if (loginForm) {
             loginForm.reset();
         }
         if (loginError) {
             loginError.textContent = '';
         }
+        if (registerForm) {
+            registerForm.reset();
+        }
+        if (registerError) {
+            registerError.textContent = '';
+        }
         if (loginUsuario) {
             setTimeout(() => loginUsuario.focus(), 50);
+        }
+    };
+
+    const mostrarFormularioRegistro = () => {
+        if (registerContainer) {
+            registerContainer.classList.remove('hidden');
+        }
+        loginContainer.classList.add('hidden');
+        mainContainer.classList.add('hidden');
+        if (registerForm) {
+            registerForm.reset();
+        }
+        if (registerError) {
+            registerError.textContent = '';
+        }
+        if (registerUsuario) {
+            setTimeout(() => registerUsuario.focus(), 50);
         }
     };
 
@@ -394,10 +473,19 @@ function configurarAutenticacion() {
         if (loginError) {
             loginError.textContent = '';
         }
+        if (registerError) {
+            registerError.textContent = '';
+        }
         loginContainer.classList.add('hidden');
+        if (registerContainer) {
+            registerContainer.classList.add('hidden');
+        }
         mainContainer.classList.remove('hidden');
         if (loginForm) {
             loginForm.reset();
+        }
+        if (registerForm) {
+            registerForm.reset();
         }
         inicializarAplicacion();
         sincronizarProductosDesdeSupabase();
@@ -446,6 +534,20 @@ function configurarAutenticacion() {
             cancelarEdicionTransaccion();
             actualizarVistas();
             usuarioActual = null;
+            mostrarFormularioLogin();
+        });
+    }
+
+    if (showRegisterButton) {
+        showRegisterButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            mostrarFormularioRegistro();
+        });
+    }
+
+    if (showLoginButton) {
+        showLoginButton.addEventListener('click', (event) => {
+            event.preventDefault();
             mostrarFormularioLogin();
         });
     }
@@ -520,6 +622,91 @@ function configurarAutenticacion() {
             }
         }
     });
+
+    if (registerForm) {
+        registerForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const usuario = registerUsuario ? registerUsuario.value.trim() : '';
+            const password = registerPassword ? registerPassword.value : '';
+            const confirmar = registerPasswordConfirm ? registerPasswordConfirm.value : '';
+
+            if (registerError) {
+                registerError.textContent = '';
+            }
+
+            if (!usuario || !password || !confirmar) {
+                if (registerError) {
+                    registerError.textContent = 'Completa todos los campos para continuar.';
+                }
+                if (!usuario && registerUsuario) {
+                    registerUsuario.focus();
+                } else if (!password && registerPassword) {
+                    registerPassword.focus();
+                } else if (!confirmar && registerPasswordConfirm) {
+                    registerPasswordConfirm.focus();
+                }
+                return;
+            }
+
+            if (password.length < 6) {
+                if (registerError) {
+                    registerError.textContent = 'La contraseña debe tener al menos 6 caracteres.';
+                }
+                if (registerPassword) {
+                    registerPassword.focus();
+                    if (typeof registerPassword.select === 'function') {
+                        registerPassword.select();
+                    }
+                }
+                return;
+            }
+
+            if (password !== confirmar) {
+                if (registerError) {
+                    registerError.textContent = 'Las contraseñas no coinciden.';
+                }
+                if (registerPasswordConfirm) {
+                    registerPasswordConfirm.focus();
+                    if (typeof registerPasswordConfirm.select === 'function') {
+                        registerPasswordConfirm.select();
+                    }
+                }
+                return;
+            }
+
+            const botonOriginal = registerSubmit ? registerSubmit.textContent : '';
+            if (registerSubmit) {
+                registerSubmit.disabled = true;
+                registerSubmit.textContent = 'Creando cuenta...';
+            }
+
+            try {
+                const nuevoUsuario = await registrarUsuarioEnSupabase(usuario, password);
+                manejarSesionActiva({ username: nuevoUsuario.username, id: nuevoUsuario.id });
+            } catch (error) {
+                console.error('Error al registrar usuario en Supabase:', error);
+                if (registerError) {
+                    if (error && error.code === 'USER_EXISTS') {
+                        registerError.textContent = 'Este nombre de usuario ya está registrado. Elige otro.';
+                    } else {
+                        registerError.textContent = 'No se pudo crear la cuenta. Intenta nuevamente en unos minutos.';
+                    }
+                }
+                if (error && error.code === 'USER_EXISTS' && registerUsuario) {
+                    registerUsuario.focus();
+                    if (typeof registerUsuario.select === 'function') {
+                        registerUsuario.select();
+                    }
+                }
+            } finally {
+                if (registerSubmit) {
+                    registerSubmit.disabled = false;
+                    registerSubmit.textContent = botonOriginal || 'Crear cuenta';
+                }
+            }
+        });
+    }
 }
 
 // Funciones de UI
