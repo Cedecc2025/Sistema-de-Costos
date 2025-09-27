@@ -112,7 +112,12 @@
 
             <!-- Tab de Productos -->
             <div id="tab-productos" class="tab-content active">
-                <h2 style="color: #2d3748; margin-bottom: 20px;">Productos y Servicios</h2>
+                <div class="section-header">
+                    <h2>Productos y Servicios</h2>
+                    <button id="btn-refrescar-productos" class="btn btn-refresh" type="button" onclick="refrescarProductos()">
+                        🔄 Refrescar
+                    </button>
+                </div>
                 
                 <div style="background: linear-gradient(135deg, #f0f4ff 0%, #e9ecef 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
                     <h3 id="prod-form-title" style="color: #4a5568; margin-bottom: 20px;">Agregar Producto/Servicio</h3>
@@ -158,12 +163,17 @@
                     </div>
                 </div>
 
-                <div id="lista-productos"></div>
+                <div id="lista-productos" class="module-list"></div>
             </div>
 
             <!-- Tab de Costos Fijos -->
             <div id="tab-costos" class="tab-content">
-                <h2 style="color: #2d3748; margin-bottom: 20px;">Costos Fijos</h2>
+                <div class="section-header">
+                    <h2>Costos Fijos</h2>
+                    <button id="btn-refrescar-costos" class="btn btn-refresh" type="button" onclick="refrescarCostosFijos()">
+                        🔄 Refrescar
+                    </button>
+                </div>
                 
                 <div style="background: linear-gradient(135deg, #fff5f5 0%, #ffe0e0 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
                     <h3 id="costo-form-title" style="color: #4a5568; margin-bottom: 20px;">Agregar Costo Fijo</h3>
@@ -206,12 +216,17 @@
                     <p class="metric-value" id="total-costos-fijos">₡0</p>
                 </div>
                 
-                <div id="lista-costos"></div>
+                <div id="lista-costos" class="module-list"></div>
             </div>
 
             <!-- Tab de Flujo de Caja -->
             <div id="tab-flujo" class="tab-content">
-                <h2 style="color: #2d3748; margin-bottom: 20px;">Flujo de Caja</h2>
+                <div class="section-header">
+                    <h2>Flujo de Caja</h2>
+                    <button id="btn-refrescar-flujo" class="btn btn-refresh" type="button" onclick="refrescarFlujoCaja()">
+                        🔄 Refrescar
+                    </button>
+                </div>
                 
                 <div style="background: linear-gradient(135deg, #f0fff4 0%, #dcfce7 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
                     <h3 id="trans-form-title" style="color: #4a5568; margin-bottom: 20px;">Agregar Transacción</h3>
@@ -263,7 +278,7 @@
                 
                 <div class="form-group">
                     <label>Seleccionar Mes</label>
-                    <input type="month" id="mes-seleccionado" onchange="actualizarFlujoCaja()" style="max-width: 200px;">
+                    <input type="month" id="mes-seleccionado" onchange="manejarCambioMes()" style="max-width: 200px;">
                 </div>
                 
                 <div class="grid">
@@ -285,12 +300,17 @@
                     <canvas id="flujoChart"></canvas>
                 </div>
                 
-                <div id="lista-transacciones"></div>
+                <div id="lista-transacciones" class="module-list"></div>
             </div>
 
             <!-- Tab de Análisis -->
             <div id="tab-analisis" class="tab-content">
-                <h2 style="color: #2d3748; margin-bottom: 20px;">Análisis y Punto de Equilibrio</h2>
+                <div class="section-header">
+                    <h2>Análisis y Punto de Equilibrio</h2>
+                    <button id="btn-refrescar-analisis" class="btn btn-refresh" type="button" onclick="refrescarAnalisis()">
+                        🔄 Refrescar
+                    </button>
+                </div>
                 
                 <div class="grid">
                     <div class="metric-card">

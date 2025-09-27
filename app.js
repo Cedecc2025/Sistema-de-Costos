@@ -206,6 +206,69 @@ async function sincronizarFlujoCajaDesdeSupabase() {
     }
 }
 
+async function ejecutarRefrescoModulo({ botonId, sincronizadores = [] } = {}) {
+    const boton = botonId ? document.getElementById(botonId) : null;
+    const contenidoOriginal = boton ? boton.innerHTML : '';
+
+    if (boton) {
+        boton.disabled = true;
+        boton.classList.add('is-loading');
+        boton.innerHTML = '⏳ Actualizando...';
+    }
+
+    try {
+        cargarDatos();
+        for (const sincronizador of sincronizadores) {
+            if (typeof sincronizador === 'function') {
+                // eslint-disable-next-line no-await-in-loop
+                await sincronizador();
+            }
+        }
+    } catch (error) {
+        console.error('Error al refrescar los datos:', error);
+        alert('❌ No se pudo refrescar los datos. Intenta nuevamente.');
+    } finally {
+        if (boton) {
+            boton.disabled = false;
+            boton.classList.remove('is-loading');
+            boton.innerHTML = contenidoOriginal;
+        }
+        actualizarVistas();
+    }
+}
+
+async function refrescarProductos() {
+    await ejecutarRefrescoModulo({
+        botonId: 'btn-refrescar-productos',
+        sincronizadores: [sincronizarProductosDesdeSupabase]
+    });
+}
+
+async function refrescarCostosFijos() {
+    await ejecutarRefrescoModulo({
+        botonId: 'btn-refrescar-costos',
+        sincronizadores: [sincronizarCostosFijosDesdeSupabase]
+    });
+}
+
+async function refrescarFlujoCaja() {
+    await ejecutarRefrescoModulo({
+        botonId: 'btn-refrescar-flujo',
+        sincronizadores: [sincronizarFlujoCajaDesdeSupabase]
+    });
+}
+
+async function refrescarAnalisis() {
+    await ejecutarRefrescoModulo({
+        botonId: 'btn-refrescar-analisis',
+        sincronizadores: [
+            sincronizarProductosDesdeSupabase,
+            sincronizarCostosFijosDesdeSupabase,
+            sincronizarFlujoCajaDesdeSupabase
+        ]
+    });
+}
+
 // Estado Global
 function crearEstadoInicial() {
     return {
@@ -230,6 +293,14 @@ let costoFijoConfirmandoEliminarId = null;
 let transaccionEditandoId = null;
 let transaccionEditandoOriginal = null;
 let transaccionConfirmandoEliminarId = null;
+
+function manejarCambioMes() {
+    const mesSelector = document.getElementById('mes-seleccionado');
+    if (mesSelector) {
+        mesSelector.dataset.usuarioSeleccion = 'true';
+    }
+    actualizarFlujoCaja();
+}
 
 // Configuración de monedas
 const monedas = {
@@ -265,6 +336,7 @@ function inicializarAplicacion() {
 
     if (mesSeleccionado) {
         mesSeleccionado.value = new Date().toISOString().slice(0, 7);
+        mesSeleccionado.dataset.usuarioSeleccion = 'false';
     }
 
     cargarDatos();
@@ -363,6 +435,11 @@ function configurarAutenticacion() {
             const tasaCambioInput = document.getElementById('tasaCambio');
             if (tasaCambioInput) {
                 tasaCambioInput.value = state.tasaCambio;
+            }
+            const mesSelector = document.getElementById('mes-seleccionado');
+            if (mesSelector) {
+                mesSelector.value = new Date().toISOString().slice(0, 7);
+                mesSelector.dataset.usuarioSeleccion = 'false';
             }
             cancelarEdicionProducto();
             cancelarEdicionCostoFijo();
@@ -1641,7 +1718,53 @@ function actualizarListaTransacciones() {
         }).join('');
 }
 
+function obtenerMesesDisponibles() {
+    if (!Array.isArray(state.transacciones)) {
+        return [];
+    }
+
+    const meses = state.transacciones
+        .map(t => (t && typeof t.fecha === 'string') ? t.fecha.slice(0, 7) : null)
+        .filter(Boolean);
+
+    return Array.from(new Set(meses)).sort((a, b) => a.localeCompare(b));
+}
+
+function asegurarMesSeleccionadoValido() {
+    const mesSelector = document.getElementById('mes-seleccionado');
+    if (!mesSelector) {
+        return;
+    }
+
+    if (!mesSelector.dataset.usuarioSeleccion) {
+        mesSelector.dataset.usuarioSeleccion = 'false';
+    }
+
+    const mesesDisponibles = obtenerMesesDisponibles();
+
+    if (mesesDisponibles.length === 0) {
+        mesSelector.value = new Date().toISOString().slice(0, 7);
+        mesSelector.dataset.usuarioSeleccion = 'false';
+        return;
+    }
+
+    const mesActual = mesSelector.value;
+    const usuarioSeleccion = mesSelector.dataset.usuarioSeleccion === 'true';
+
+    if (usuarioSeleccion) {
+        if (!mesActual) {
+            mesSelector.dataset.usuarioSeleccion = 'false';
+        }
+        return;
+    }
+
+    if (!mesActual || !mesesDisponibles.includes(mesActual)) {
+        mesSelector.value = mesesDisponibles[mesesDisponibles.length - 1];
+    }
+}
+
 function actualizarFlujoCaja() {
+    asegurarMesSeleccionadoValido();
     const ingresosElemento = document.getElementById('flujo-ingresos');
     const egresosElemento = document.getElementById('flujo-egresos');
     const saldoElemento = document.getElementById('flujo-saldo');
@@ -2011,7 +2134,12 @@ function limpiarDatos() {
         document.getElementById('selectMoneda').value = 'CRC';
         document.getElementById('monedaActual').textContent = '₡ CRC';
         document.getElementById('tasaCambio').value = 520;
-        
+        const mesSelector = document.getElementById('mes-seleccionado');
+        if (mesSelector) {
+            mesSelector.value = new Date().toISOString().slice(0, 7);
+            mesSelector.dataset.usuarioSeleccion = 'false';
+        }
+
         actualizarVistas();
         toggleDropdown('dataMenu');
         alert('✅ Datos eliminados');
