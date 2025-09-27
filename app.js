@@ -12,7 +12,7 @@ function obtenerClienteSupabase() {
     return supabaseClient;
 }
 
-async function buscarUsuarioEnSupabase(username) {
+async function buscarUsuarioEnSupabase(username, password) {
     const cliente = obtenerClienteSupabase();
     if (!cliente) {
         throw new Error('Supabase no está disponible');
@@ -21,7 +21,7 @@ async function buscarUsuarioEnSupabase(username) {
     const patron = username.replace(/[\%_]/g, '\\$&');
     const { data, error } = await cliente
         .from('usuarios')
-        .select('id, username')
+        .select('id, username, password')
         .ilike('username', patron)
         .limit(1);
 
@@ -29,25 +29,230 @@ async function buscarUsuarioEnSupabase(username) {
         throw error;
     }
 
-    return Array.isArray(data) ? data[0] : null;
+    const usuario = Array.isArray(data) ? data[0] : null;
+
+    if (!usuario) {
+        return null;
+    }
+
+    if (typeof usuario.password !== 'string') {
+        return null;
+    }
+
+    if (usuario.password !== password) {
+        return null;
+    }
+
+    return { id: usuario.id, username: usuario.username };
+}
+
+function mapearProductoDeSupabase(fila) {
+    if (!fila) return null;
+    const parseNumero = (valor) => {
+        if (valor === null || valor === undefined || valor === '') return 0;
+        const numero = typeof valor === 'number' ? valor : parseFloat(valor);
+        return Number.isNaN(numero) ? 0 : numero;
+    };
+
+    return {
+        id: fila.id,
+        nombre: fila.nombre,
+        tipo: fila.tipo,
+        moneda: fila.moneda,
+        costoUnitario: parseNumero(fila.costo_unitario ?? fila.costoUnitario),
+        precioVenta: parseNumero(fila.precio_venta ?? fila.precioVenta),
+        unidadesVendidas: parseNumero(fila.unidades_vendidas ?? fila.unidadesVendidas)
+    };
+}
+
+function mapearCostoFijoDeSupabase(fila) {
+    if (!fila) return null;
+
+    const parseNumero = (valor) => {
+        if (valor === null || valor === undefined || valor === '') return 0;
+        const numero = typeof valor === 'number' ? valor : parseFloat(valor);
+        return Number.isNaN(numero) ? 0 : numero;
+    };
+
+    return {
+        id: fila.id,
+        concepto: fila.concepto,
+        moneda: fila.moneda,
+        monto: parseNumero(fila.monto),
+        frecuencia: fila.frecuencia
+    };
+}
+
+function mapearTransaccionDeSupabase(fila) {
+    if (!fila) return null;
+
+    const parseNumero = (valor) => {
+        if (valor === null || valor === undefined || valor === '') return 0;
+        const numero = typeof valor === 'number' ? valor : parseFloat(valor);
+        return Number.isNaN(numero) ? 0 : numero;
+    };
+
+    const normalizarFecha = (valor) => {
+        if (!valor) return new Date().toISOString().split('T')[0];
+        if (typeof valor === 'string') {
+            return valor.length >= 10 ? valor.slice(0, 10) : valor;
+        }
+        if (valor instanceof Date) {
+            return valor.toISOString().split('T')[0];
+        }
+        return String(valor);
+    };
+
+    return {
+        id: fila.id,
+        fecha: normalizarFecha(fila.fecha),
+        tipo: fila.tipo,
+        concepto: fila.concepto,
+        moneda: fila.moneda,
+        monto: parseNumero(fila.monto),
+        categoria: fila.categoria
+    };
+}
+
+async function sincronizarProductosDesdeSupabase() {
+    if (!usuarioActual || !usuarioActual.id) return;
+
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) return;
+
+    try {
+        const { data, error } = await cliente
+            .from('productos')
+            .select('id, nombre, tipo, moneda, costo_unitario, precio_venta, unidades_vendidas')
+            .eq('usuario_id', usuarioActual.id)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            throw error;
+        }
+
+        if (Array.isArray(data)) {
+            const productosRemotos = data
+                .map(mapearProductoDeSupabase)
+                .filter(Boolean);
+            const productosLocales = Array.isArray(state.productos) ? state.productos : [];
+            const idsRemotos = new Set(productosRemotos.map(p => p.id));
+            const productosNoSincronizados = productosLocales.filter(p => !idsRemotos.has(p.id));
+
+            state.productos = [...productosRemotos, ...productosNoSincronizados];
+            actualizarVistas();
+            guardarDatos();
+        }
+    } catch (error) {
+        console.error('Error al cargar productos desde Supabase:', error);
+    }
+}
+
+async function sincronizarCostosFijosDesdeSupabase() {
+    if (!usuarioActual || !usuarioActual.id) return;
+
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) return;
+
+    try {
+        const { data, error } = await cliente
+            .from('costos_fijos')
+            .select('id, concepto, moneda, monto, frecuencia, created_at')
+            .eq('usuario_id', usuarioActual.id)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            throw error;
+        }
+
+        if (Array.isArray(data)) {
+            const costosRemotos = data
+                .map(mapearCostoFijoDeSupabase)
+                .filter(Boolean);
+            const costosLocales = Array.isArray(state.costosFijos) ? state.costosFijos : [];
+            const idsRemotos = new Set(costosRemotos.map(c => c.id));
+            const costosNoSincronizados = costosLocales.filter(c => !idsRemotos.has(c.id));
+
+            state.costosFijos = [...costosRemotos, ...costosNoSincronizados];
+            actualizarVistas();
+            guardarDatos();
+        }
+    } catch (error) {
+        console.error('Error al cargar costos fijos desde Supabase:', error);
+    }
+}
+
+async function sincronizarTransaccionesDesdeSupabase() {
+    if (!usuarioActual || !usuarioActual.id) return;
+
+    const cliente = obtenerClienteSupabase();
+    if (!cliente) return;
+
+    try {
+        const { data, error } = await cliente
+            .from('flujo_caja')
+            .select('id, fecha, tipo, concepto, moneda, monto, categoria')
+            .eq('usuario_id', usuarioActual.id)
+            .order('fecha', { ascending: false });
+
+        if (error) {
+            throw error;
+        }
+
+        if (Array.isArray(data)) {
+            const transaccionesRemotas = data
+                .map(mapearTransaccionDeSupabase)
+                .filter(Boolean);
+            const transaccionesLocales = Array.isArray(state.transacciones) ? state.transacciones : [];
+            const idsRemotos = new Set(transaccionesRemotas.map(t => t.id));
+            const transaccionesNoSincronizadas = transaccionesLocales.filter(t => !idsRemotos.has(t.id));
+
+            state.transacciones = [...transaccionesRemotas, ...transaccionesNoSincronizadas];
+            actualizarVistas();
+            guardarDatos();
+        }
+    } catch (error) {
+        console.error('Error al cargar transacciones desde Supabase:', error);
+    }
 }
 
 // Estado Global
-let state = {
-    productos: [],
-    costosFijos: [],
-    transacciones: [],
-    moneda: 'CRC',
-    tasaCambio: 520
-};
+function crearEstadoInicial() {
+    return {
+        productos: [],
+        costosFijos: [],
+        transacciones: [],
+        moneda: 'CRC',
+        tasaCambio: 520
+    };
+}
+
+let state = crearEstadoInicial();
 
 let usuarioActual = null;
+
+let productoEditandoId = null;
+let productoEditandoOriginal = null;
+let productoConfirmandoEliminarId = null;
+let costoFijoEditandoId = null;
+let costoFijoEditandoOriginal = null;
+let costoFijoConfirmandoEliminarId = null;
+let transaccionEditandoId = null;
+let transaccionEditandoOriginal = null;
+let transaccionConfirmandoEliminarId = null;
 
 // Configuración de monedas
 const monedas = {
     CRC: { simbolo: '₡', nombre: 'Colones', decimales: 0 },
     USD: { simbolo: '$', nombre: 'Dólares', decimales: 2 }
 };
+
+function obtenerClaveAlmacenamiento(usuario = usuarioActual) {
+    if (usuario && usuario.id !== undefined && usuario.id !== null && usuario.id !== '') {
+        return `sistemaFinanciero:${usuario.id}`;
+    }
+    return 'sistemaFinanciero';
+}
 
 // Charts globales
 let flujoChart, margenChart, equilibrioChart;
@@ -85,6 +290,7 @@ function configurarAutenticacion() {
     const loginForm = document.getElementById('loginForm');
     const loginError = document.getElementById('loginError');
     const loginUsuario = document.getElementById('loginUsuario');
+    const loginPassword = document.getElementById('loginPassword');
     const loginSubmit = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
     const logoutButton = document.getElementById('logoutButton');
 
@@ -117,6 +323,12 @@ function configurarAutenticacion() {
         if (usuario.username) {
             sessionStorage.setItem('usuarioNombre', usuario.username);
         }
+        state = crearEstadoInicial();
+        cancelarEdicionProducto();
+        cancelarEdicionCostoFijo();
+        cancelarEdicionTransaccion();
+        cargarDatos();
+        actualizarVistas();
         if (loginError) {
             loginError.textContent = '';
         }
@@ -126,6 +338,9 @@ function configurarAutenticacion() {
             loginForm.reset();
         }
         inicializarAplicacion();
+        sincronizarProductosDesdeSupabase();
+        sincronizarCostosFijosDesdeSupabase();
+        sincronizarTransaccionesDesdeSupabase();
     };
 
     if (logoutButton) {
@@ -133,6 +348,36 @@ function configurarAutenticacion() {
             ['usuarioAutenticado', 'usuarioId', 'usuarioNombre'].forEach((clave) => {
                 sessionStorage.removeItem(clave);
             });
+            if (flujoChart && typeof flujoChart.destroy === 'function') {
+                flujoChart.destroy();
+            }
+            if (margenChart && typeof margenChart.destroy === 'function') {
+                margenChart.destroy();
+            }
+            if (equilibrioChart && typeof equilibrioChart.destroy === 'function') {
+                equilibrioChart.destroy();
+            }
+            flujoChart = null;
+            margenChart = null;
+            equilibrioChart = null;
+            appInicializada = false;
+            state = crearEstadoInicial();
+            const selectorMoneda = document.getElementById('selectMoneda');
+            if (selectorMoneda) {
+                selectorMoneda.value = state.moneda;
+            }
+            const etiquetaMoneda = document.getElementById('monedaActual');
+            if (etiquetaMoneda) {
+                etiquetaMoneda.textContent = `${monedas[state.moneda].simbolo} ${state.moneda}`;
+            }
+            const tasaCambioInput = document.getElementById('tasaCambio');
+            if (tasaCambioInput) {
+                tasaCambioInput.value = state.tasaCambio;
+            }
+            cancelarEdicionProducto();
+            cancelarEdicionCostoFijo();
+            cancelarEdicionTransaccion();
+            actualizarVistas();
             usuarioActual = null;
             mostrarFormularioLogin();
         });
@@ -152,14 +397,20 @@ function configurarAutenticacion() {
         event.preventDefault();
 
         const usuario = loginUsuario ? loginUsuario.value.trim() : '';
+        const password = loginPassword ? loginPassword.value : '';
 
         if (loginError) {
             loginError.textContent = '';
         }
 
-        if (!usuario) {
+        if (!usuario || !password) {
             if (loginError) {
-                loginError.textContent = 'Por favor, ingresa tu usuario.';
+                loginError.textContent = 'Por favor, ingresa tu usuario y contraseña.';
+            }
+            if (!usuario && loginUsuario) {
+                loginUsuario.focus();
+            } else if (!password && loginPassword) {
+                loginPassword.focus();
             }
             return;
         }
@@ -171,11 +422,20 @@ function configurarAutenticacion() {
         }
 
         try {
-            const usuarioEncontrado = await buscarUsuarioEnSupabase(usuario);
+            const usuarioEncontrado = await buscarUsuarioEnSupabase(usuario, password);
 
             if (!usuarioEncontrado) {
                 if (loginError) {
                     loginError.textContent = 'Usuario no autorizado. Verifica tus credenciales.';
+                }
+                if (loginPassword) {
+                    loginPassword.value = '';
+                }
+                if (loginPassword) {
+                    loginPassword.focus();
+                    if (typeof loginPassword.select === 'function') {
+                        loginPassword.select();
+                    }
                 }
                 return;
             }
@@ -263,122 +523,887 @@ function actualizarTasaCambio() {
 }
 
 // CRUD Productos
-function agregarProducto() {
+async function agregarProducto() {
     const nombre = document.getElementById('prod-nombre').value;
     const tipo = document.getElementById('prod-tipo').value;
     const moneda = document.getElementById('prod-moneda').value;
     const costo = parseFloat(document.getElementById('prod-costo').value) || 0;
     const precio = parseFloat(document.getElementById('prod-precio').value) || 0;
     const unidades = parseInt(document.getElementById('prod-unidades').value) || 0;
-    
-    if (nombre && costo > 0 && precio > 0) {
-        state.productos.push({
-            id: Date.now(),
+
+    if (!nombre || costo <= 0 || precio <= 0) {
+        alert('Por favor completa todos los campos requeridos');
+        return;
+    }
+
+    if (productoEditandoId !== null) {
+        const indice = state.productos.findIndex(p => p.id === productoEditandoId);
+        if (indice === -1) {
+            alert('No se encontró el producto que intentas editar.');
+            cancelarEdicionProducto();
+            return;
+        }
+
+        const productoAnterior = productoEditandoOriginal
+            ? { ...productoEditandoOriginal }
+            : { ...state.productos[indice] };
+
+        let productoActualizado = {
+            ...state.productos[indice],
             nombre,
             tipo,
             moneda,
             costoUnitario: costo,
             precioVenta: precio,
             unidadesVendidas: unidades
-        });
-        
-        // Limpiar formulario
-        document.getElementById('prod-nombre').value = '';
-        document.getElementById('prod-costo').value = '';
-        document.getElementById('prod-precio').value = '';
-        document.getElementById('prod-unidades').value = '';
-        
+        };
+
+        state.productos[indice] = productoActualizado;
         actualizarVistas();
         guardarDatos();
+
+        const cliente = obtenerClienteSupabase();
+        if (cliente && usuarioActual && usuarioActual.id) {
+            try {
+                const { data, error } = await cliente
+                    .from('productos')
+                    .update({
+                        nombre,
+                        tipo,
+                        moneda,
+                        costo_unitario: costo,
+                        precio_venta: precio,
+                        unidades_vendidas: unidades
+                    })
+                    .eq('id', productoEditandoId)
+                    .eq('usuario_id', usuarioActual.id)
+                    .select('id, nombre, tipo, moneda, costo_unitario, precio_venta, unidades_vendidas')
+                    .single();
+
+                if (error) {
+                    throw error;
+                }
+
+                const productoSupabase = mapearProductoDeSupabase(data);
+                if (productoSupabase) {
+                    productoActualizado = productoSupabase;
+                    state.productos[indice] = productoSupabase;
+                }
+            } catch (error) {
+                console.error('Error al actualizar producto en Supabase:', error);
+                state.productos[indice] = productoAnterior;
+                productoEditandoOriginal = { ...productoAnterior };
+                actualizarVistas();
+                guardarDatos();
+                alert('No se pudo actualizar el producto en la base de datos. Intenta nuevamente.');
+                return;
+            }
+        } else if (usuarioActual && usuarioActual.id) {
+            alert('No se pudo conectar con la base de datos. Los cambios se guardaron localmente.');
+        }
+
+        cancelarEdicionProducto();
+        actualizarVistas();
+        guardarDatos();
+        return;
+    }
+
+    let productoParaEstado = {
+        id: Date.now(),
+        nombre,
+        tipo,
+        moneda,
+        costoUnitario: costo,
+        precioVenta: precio,
+        unidadesVendidas: unidades
+    };
+
+    const cliente = obtenerClienteSupabase();
+    if (cliente && usuarioActual && usuarioActual.id) {
+        try {
+            const { data, error } = await cliente
+                .from('productos')
+                .insert([
+                    {
+                        usuario_id: usuarioActual.id,
+                        nombre,
+                        tipo,
+                        moneda,
+                        costo_unitario: costo,
+                        precio_venta: precio,
+                        unidades_vendidas: unidades
+                    }
+                ])
+                .select('id, nombre, tipo, moneda, costo_unitario, precio_venta, unidades_vendidas')
+                .single();
+
+            if (error) {
+                throw error;
+            }
+
+            const productoSupabase = mapearProductoDeSupabase(data);
+            if (productoSupabase) {
+                productoParaEstado = productoSupabase;
+            }
+        } catch (error) {
+            console.error('Error al guardar producto en Supabase:', error);
+            alert('El producto se guardó localmente pero no en la base de datos. Intenta nuevamente cuando tengas conexión.');
+        }
+    } else if (usuarioActual && usuarioActual.id) {
+        alert('No se pudo conectar con la base de datos. El producto se guardará localmente.');
+    }
+
+    state.productos.push(productoParaEstado);
+
+    document.getElementById('prod-nombre').value = '';
+    document.getElementById('prod-costo').value = '';
+    document.getElementById('prod-precio').value = '';
+    document.getElementById('prod-unidades').value = '';
+
+    actualizarVistas();
+    guardarDatos();
+}
+
+function prepararEdicionProducto(id) {
+    const producto = state.productos.find(p => p.id === id);
+    if (!producto) {
+        return;
+    }
+
+    productoConfirmandoEliminarId = null;
+    productoEditandoId = id;
+    productoEditandoOriginal = { ...producto };
+
+    const nombreInput = document.getElementById('prod-nombre');
+    const tipoSelect = document.getElementById('prod-tipo');
+    const monedaSelect = document.getElementById('prod-moneda');
+    const costoInput = document.getElementById('prod-costo');
+    const precioInput = document.getElementById('prod-precio');
+    const unidadesInput = document.getElementById('prod-unidades');
+
+    if (nombreInput) {
+        nombreInput.value = producto.nombre ?? '';
+        setTimeout(() => {
+            nombreInput.focus();
+            if (typeof nombreInput.select === 'function') {
+                nombreInput.select();
+            }
+        }, 0);
+    }
+    if (tipoSelect && producto.tipo) {
+        tipoSelect.value = producto.tipo;
+    }
+    if (monedaSelect && producto.moneda) {
+        monedaSelect.value = producto.moneda;
+    }
+    if (costoInput) {
+        costoInput.value = producto.costoUnitario ?? '';
+    }
+    if (precioInput) {
+        precioInput.value = producto.precioVenta ?? '';
+    }
+    if (unidadesInput) {
+        unidadesInput.value = producto.unidadesVendidas ?? '';
+    }
+
+    const titulo = document.getElementById('prod-form-title');
+    if (titulo) {
+        titulo.textContent = 'Editar Producto/Servicio';
+    }
+
+    const submitBtn = document.getElementById('prod-submit');
+    if (submitBtn) {
+        submitBtn.textContent = '💾 Guardar Cambios';
+    }
+
+    const cancelarBtn = document.getElementById('prod-cancelar');
+    if (cancelarBtn) {
+        cancelarBtn.style.display = 'inline-flex';
+    }
+
+    actualizarListaProductos();
+}
+
+function cancelarEdicionProducto() {
+    productoEditandoId = null;
+    productoEditandoOriginal = null;
+    productoConfirmandoEliminarId = null;
+
+    const nombreInput = document.getElementById('prod-nombre');
+    const costoInput = document.getElementById('prod-costo');
+    const precioInput = document.getElementById('prod-precio');
+    const unidadesInput = document.getElementById('prod-unidades');
+    const titulo = document.getElementById('prod-form-title');
+    const submitBtn = document.getElementById('prod-submit');
+    const cancelarBtn = document.getElementById('prod-cancelar');
+
+    if (nombreInput) nombreInput.value = '';
+    if (costoInput) costoInput.value = '';
+    if (precioInput) precioInput.value = '';
+    if (unidadesInput) unidadesInput.value = '';
+    if (titulo) titulo.textContent = 'Agregar Producto/Servicio';
+    if (submitBtn) submitBtn.textContent = '➕ Agregar Producto';
+    if (cancelarBtn) cancelarBtn.style.display = 'none';
+
+    actualizarListaProductos();
+}
+
+function mostrarAdvertenciaEliminarProducto(id) {
+    if (productoConfirmandoEliminarId === id) {
+        productoConfirmandoEliminarId = null;
     } else {
-        alert('Por favor completa todos los campos requeridos');
+        productoConfirmandoEliminarId = id;
+    }
+    actualizarListaProductos();
+}
+
+function cancelarEliminacionProducto() {
+    if (productoConfirmandoEliminarId !== null) {
+        productoConfirmandoEliminarId = null;
+        actualizarListaProductos();
     }
 }
 
-function eliminarProducto(id) {
-    if (confirm('¿Estás seguro de eliminar este producto?')) {
-        state.productos = state.productos.filter(p => p.id !== id);
-        actualizarVistas();
-        guardarDatos();
+function confirmarEliminacionProducto(id) {
+    eliminarProducto(id);
+}
+
+async function eliminarProducto(id) {
+    const indiceProducto = state.productos.findIndex(p => p.id === id);
+    const productoEliminado = indiceProducto >= 0 ? state.productos[indiceProducto] : null;
+    if (!productoEliminado) {
+        return;
     }
+
+    const cliente = obtenerClienteSupabase();
+    const puedeSincronizar = cliente && usuarioActual && usuarioActual.id;
+
+    if (puedeSincronizar) {
+        try {
+            const { error } = await cliente
+                .from('productos')
+                .delete()
+                .eq('id', id)
+                .eq('usuario_id', usuarioActual.id);
+
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error al eliminar producto en Supabase:', error);
+            alert('No se pudo eliminar el producto de la base de datos. Intenta nuevamente.');
+            return;
+        }
+    }
+
+    if (productoEditandoId === id) {
+        cancelarEdicionProducto();
+    }
+
+    productoConfirmandoEliminarId = null;
+    state.productos.splice(indiceProducto, 1);
+    actualizarVistas();
+    guardarDatos();
 }
 
 // CRUD Costos Fijos
-function agregarCostoFijo() {
-    const concepto = document.getElementById('costo-concepto').value;
-    const moneda = document.getElementById('costo-moneda').value;
-    const monto = parseFloat(document.getElementById('costo-monto').value) || 0;
-    const frecuencia = document.getElementById('costo-frecuencia').value;
-    
-    if (concepto && monto > 0) {
-        state.costosFijos.push({
-            id: Date.now(),
+async function agregarCostoFijo() {
+    const conceptoInput = document.getElementById('costo-concepto');
+    const monedaSelect = document.getElementById('costo-moneda');
+    const montoInput = document.getElementById('costo-monto');
+    const frecuenciaSelect = document.getElementById('costo-frecuencia');
+
+    const concepto = conceptoInput ? conceptoInput.value.trim() : '';
+    const moneda = monedaSelect ? monedaSelect.value : 'CRC';
+    const monto = montoInput ? parseFloat(montoInput.value) || 0 : 0;
+    const frecuencia = frecuenciaSelect ? frecuenciaSelect.value : 'mensual';
+
+    if (!concepto || monto <= 0) {
+        alert('Por favor completa todos los campos requeridos');
+        if (!concepto && conceptoInput) {
+            conceptoInput.focus();
+        } else if (monto <= 0 && montoInput) {
+            montoInput.focus();
+        }
+        return;
+    }
+
+    if (costoFijoEditandoId !== null) {
+        const indice = state.costosFijos.findIndex(c => c.id === costoFijoEditandoId);
+        if (indice === -1) {
+            alert('No se encontró el costo fijo que intentas editar.');
+            cancelarEdicionCostoFijo();
+            return;
+        }
+
+        const costoAnterior = costoFijoEditandoOriginal
+            ? { ...costoFijoEditandoOriginal }
+            : { ...state.costosFijos[indice] };
+
+        let costoActualizado = {
+            ...state.costosFijos[indice],
             concepto,
             moneda,
             monto,
             frecuencia
-        });
-        
-        document.getElementById('costo-concepto').value = '';
-        document.getElementById('costo-monto').value = '';
-        
+        };
+
+        state.costosFijos[indice] = costoActualizado;
         actualizarVistas();
         guardarDatos();
+
+        const cliente = obtenerClienteSupabase();
+        if (cliente && usuarioActual && usuarioActual.id) {
+            try {
+                const { data, error } = await cliente
+                    .from('costos_fijos')
+                    .update({
+                        concepto,
+                        moneda,
+                        monto,
+                        frecuencia
+                    })
+                    .eq('id', costoFijoEditandoId)
+                    .eq('usuario_id', usuarioActual.id)
+                    .select('id, concepto, moneda, monto, frecuencia')
+                    .single();
+
+                if (error) {
+                    throw error;
+                }
+
+                const costoSupabase = mapearCostoFijoDeSupabase(data);
+                if (costoSupabase) {
+                    costoActualizado = costoSupabase;
+                    state.costosFijos[indice] = costoSupabase;
+                }
+            } catch (error) {
+                console.error('Error al actualizar costo fijo en Supabase:', error);
+                state.costosFijos[indice] = costoAnterior;
+                costoFijoEditandoOriginal = { ...costoAnterior };
+                actualizarVistas();
+                guardarDatos();
+                alert('No se pudo actualizar el costo fijo en la base de datos. Intenta nuevamente.');
+                return;
+            }
+        } else if (usuarioActual && usuarioActual.id) {
+            alert('No se pudo conectar con la base de datos. Los cambios se guardaron localmente.');
+        }
+
+        cancelarEdicionCostoFijo();
+        actualizarVistas();
+        guardarDatos();
+        return;
+    }
+
+    let costoParaEstado = {
+        id: Date.now(),
+        concepto,
+        moneda,
+        monto,
+        frecuencia
+    };
+
+    const cliente = obtenerClienteSupabase();
+    if (cliente && usuarioActual && usuarioActual.id) {
+        try {
+            const { data, error } = await cliente
+                .from('costos_fijos')
+                .insert([
+                    {
+                        usuario_id: usuarioActual.id,
+                        concepto,
+                        moneda,
+                        monto,
+                        frecuencia
+                    }
+                ])
+                .select('id, concepto, moneda, monto, frecuencia')
+                .single();
+
+            if (error) {
+                throw error;
+            }
+
+            const costoSupabase = mapearCostoFijoDeSupabase(data);
+            if (costoSupabase) {
+                costoParaEstado = costoSupabase;
+            }
+        } catch (error) {
+            console.error('Error al guardar costo fijo en Supabase:', error);
+            alert('El costo fijo se guardó localmente pero no en la base de datos. Intenta nuevamente cuando tengas conexión.');
+        }
+    } else if (usuarioActual && usuarioActual.id) {
+        alert('No se pudo conectar con la base de datos. El costo fijo se guardará localmente.');
+    }
+
+    state.costosFijos.push(costoParaEstado);
+
+    if (conceptoInput) conceptoInput.value = '';
+    if (montoInput) montoInput.value = '';
+    if (monedaSelect) monedaSelect.value = 'CRC';
+    if (frecuenciaSelect) frecuenciaSelect.value = 'mensual';
+
+    costoFijoConfirmandoEliminarId = null;
+
+    actualizarVistas();
+    guardarDatos();
+}
+
+function prepararEdicionCostoFijo(id) {
+    const costo = state.costosFijos.find(c => c.id === id);
+    if (!costo) {
+        return;
+    }
+
+    costoFijoConfirmandoEliminarId = null;
+    costoFijoEditandoId = id;
+    costoFijoEditandoOriginal = { ...costo };
+
+    const conceptoInput = document.getElementById('costo-concepto');
+    const monedaSelect = document.getElementById('costo-moneda');
+    const montoInput = document.getElementById('costo-monto');
+    const frecuenciaSelect = document.getElementById('costo-frecuencia');
+    const titulo = document.getElementById('costo-form-title');
+    const submitBtn = document.getElementById('costo-submit');
+    const cancelarBtn = document.getElementById('costo-cancelar');
+
+    if (conceptoInput) {
+        conceptoInput.value = costo.concepto ?? '';
+        setTimeout(() => {
+            conceptoInput.focus();
+            if (typeof conceptoInput.select === 'function') {
+                conceptoInput.select();
+            }
+        }, 0);
+    }
+    if (monedaSelect && costo.moneda) {
+        monedaSelect.value = costo.moneda;
+    }
+    if (montoInput) {
+        montoInput.value = costo.monto ?? '';
+    }
+    if (frecuenciaSelect && costo.frecuencia) {
+        frecuenciaSelect.value = costo.frecuencia;
+    }
+    if (titulo) {
+        titulo.textContent = 'Editar Costo Fijo';
+    }
+    if (submitBtn) {
+        submitBtn.textContent = '💾 Guardar Cambios';
+    }
+    if (cancelarBtn) {
+        cancelarBtn.style.display = 'inline-flex';
+    }
+
+    actualizarListaCostos();
+}
+
+function cancelarEdicionCostoFijo() {
+    costoFijoEditandoId = null;
+    costoFijoEditandoOriginal = null;
+    costoFijoConfirmandoEliminarId = null;
+
+    const conceptoInput = document.getElementById('costo-concepto');
+    const monedaSelect = document.getElementById('costo-moneda');
+    const montoInput = document.getElementById('costo-monto');
+    const frecuenciaSelect = document.getElementById('costo-frecuencia');
+    const titulo = document.getElementById('costo-form-title');
+    const submitBtn = document.getElementById('costo-submit');
+    const cancelarBtn = document.getElementById('costo-cancelar');
+
+    if (conceptoInput) conceptoInput.value = '';
+    if (monedaSelect) monedaSelect.value = 'CRC';
+    if (montoInput) montoInput.value = '';
+    if (frecuenciaSelect) frecuenciaSelect.value = 'mensual';
+    if (titulo) titulo.textContent = 'Agregar Costo Fijo';
+    if (submitBtn) submitBtn.textContent = '➕ Agregar Costo Fijo';
+    if (cancelarBtn) cancelarBtn.style.display = 'none';
+
+    actualizarListaCostos();
+}
+
+function mostrarAdvertenciaEliminarCostoFijo(id) {
+    if (costoFijoConfirmandoEliminarId === id) {
+        costoFijoConfirmandoEliminarId = null;
     } else {
-        alert('Por favor completa todos los campos requeridos');
+        costoFijoConfirmandoEliminarId = id;
+    }
+    actualizarListaCostos();
+}
+
+function cancelarEliminacionCostoFijo() {
+    if (costoFijoConfirmandoEliminarId !== null) {
+        costoFijoConfirmandoEliminarId = null;
+        actualizarListaCostos();
     }
 }
 
-function eliminarCostoFijo(id) {
-    if (confirm('¿Estás seguro de eliminar este costo fijo?')) {
-        state.costosFijos = state.costosFijos.filter(c => c.id !== id);
-        actualizarVistas();
-        guardarDatos();
+function confirmarEliminacionCostoFijo(id) {
+    eliminarCostoFijo(id);
+}
+
+async function eliminarCostoFijo(id) {
+    const indice = state.costosFijos.findIndex(c => c.id === id);
+    if (indice === -1) {
+        return;
     }
+
+    const cliente = obtenerClienteSupabase();
+    const puedeSincronizar = cliente && usuarioActual && usuarioActual.id;
+
+    if (puedeSincronizar) {
+        try {
+            const { error } = await cliente
+                .from('costos_fijos')
+                .delete()
+                .eq('id', id)
+                .eq('usuario_id', usuarioActual.id);
+
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error al eliminar costo fijo en Supabase:', error);
+            alert('No se pudo eliminar el costo fijo de la base de datos. Intenta nuevamente.');
+            return;
+        }
+    }
+
+    if (costoFijoEditandoId === id) {
+        cancelarEdicionCostoFijo();
+    } else {
+        costoFijoConfirmandoEliminarId = null;
+    }
+
+    state.costosFijos.splice(indice, 1);
+    actualizarVistas();
+    guardarDatos();
 }
 
 // CRUD Transacciones
-function agregarTransaccion() {
-    const fecha = document.getElementById('trans-fecha').value;
-    const tipo = document.getElementById('trans-tipo').value;
-    const concepto = document.getElementById('trans-concepto').value;
-    const moneda = document.getElementById('trans-moneda').value;
-    const monto = parseFloat(document.getElementById('trans-monto').value) || 0;
-    const categoria = document.getElementById('trans-categoria').value;
-    
-    if (concepto && monto > 0) {
-        state.transacciones.push({
-            id: Date.now(),
+async function agregarTransaccion() {
+    const fechaInput = document.getElementById('trans-fecha');
+    const tipoSelect = document.getElementById('trans-tipo');
+    const conceptoInput = document.getElementById('trans-concepto');
+    const monedaSelect = document.getElementById('trans-moneda');
+    const montoInput = document.getElementById('trans-monto');
+    const categoriaSelect = document.getElementById('trans-categoria');
+    const titulo = document.getElementById('trans-form-title');
+
+    if (!fechaInput || !tipoSelect || !conceptoInput || !monedaSelect || !montoInput || !categoriaSelect) {
+        return;
+    }
+
+    const fecha = fechaInput.value || new Date().toISOString().split('T')[0];
+    const tipo = tipoSelect.value;
+    const concepto = conceptoInput.value.trim();
+    const moneda = monedaSelect.value;
+    const monto = parseFloat(montoInput.value);
+    const categoria = categoriaSelect.value;
+
+    if (!concepto || !Number.isFinite(monto) || monto <= 0) {
+        alert('Por favor completa todos los campos requeridos');
+        if (!concepto && conceptoInput) {
+            conceptoInput.focus();
+        } else if ((!Number.isFinite(monto) || monto <= 0) && montoInput) {
+            montoInput.focus();
+        }
+        return;
+    }
+
+    if (transaccionEditandoId !== null) {
+        const indice = state.transacciones.findIndex(t => t.id === transaccionEditandoId);
+        if (indice === -1) {
+            alert('No se encontró la transacción que intentas editar.');
+            cancelarEdicionTransaccion();
+            return;
+        }
+
+        const transaccionAnterior = transaccionEditandoOriginal
+            ? { ...transaccionEditandoOriginal }
+            : { ...state.transacciones[indice] };
+
+        let transaccionActualizada = {
+            ...state.transacciones[indice],
             fecha,
             tipo,
             concepto,
             moneda,
             monto,
             categoria
-        });
-        
-        document.getElementById('trans-concepto').value = '';
-        document.getElementById('trans-monto').value = '';
-        
+        };
+
+        state.transacciones[indice] = transaccionActualizada;
         actualizarVistas();
         guardarDatos();
+
+        const cliente = obtenerClienteSupabase();
+        if (cliente && usuarioActual && usuarioActual.id) {
+            try {
+                const { data, error } = await cliente
+                    .from('flujo_caja')
+                    .update({
+                        fecha,
+                        tipo,
+                        concepto,
+                        moneda,
+                        monto,
+                        categoria
+                    })
+                    .eq('id', transaccionEditandoId)
+                    .eq('usuario_id', usuarioActual.id)
+                    .select('id, fecha, tipo, concepto, moneda, monto, categoria')
+                    .single();
+
+                if (error) {
+                    throw error;
+                }
+
+                const transaccionSupabase = mapearTransaccionDeSupabase(data);
+                if (transaccionSupabase) {
+                    transaccionActualizada = transaccionSupabase;
+                    state.transacciones[indice] = transaccionSupabase;
+                }
+            } catch (error) {
+                console.error('Error al actualizar transacción en Supabase:', error);
+                state.transacciones[indice] = transaccionAnterior;
+                transaccionEditandoOriginal = { ...transaccionAnterior };
+                actualizarVistas();
+                guardarDatos();
+                alert('No se pudo actualizar la transacción en la base de datos. Intenta nuevamente.');
+                return;
+            }
+        } else if (usuarioActual && usuarioActual.id) {
+            alert('No se pudo conectar con la base de datos. Los cambios se guardaron localmente.');
+        }
+
+        cancelarEdicionTransaccion();
+        actualizarVistas();
+        guardarDatos();
+        return;
+    }
+
+    let transaccionParaEstado = {
+        id: Date.now(),
+        fecha,
+        tipo,
+        concepto,
+        moneda,
+        monto,
+        categoria
+    };
+
+    const cliente = obtenerClienteSupabase();
+    if (cliente && usuarioActual && usuarioActual.id) {
+        try {
+            const { data, error } = await cliente
+                .from('flujo_caja')
+                .insert([
+                    {
+                        usuario_id: usuarioActual.id,
+                        fecha,
+                        tipo,
+                        concepto,
+                        moneda,
+                        monto,
+                        categoria
+                    }
+                ])
+                .select('id, fecha, tipo, concepto, moneda, monto, categoria')
+                .single();
+
+            if (error) {
+                throw error;
+            }
+
+            const transaccionSupabase = mapearTransaccionDeSupabase(data);
+            if (transaccionSupabase) {
+                transaccionParaEstado = transaccionSupabase;
+            }
+        } catch (error) {
+            console.error('Error al guardar transacción en Supabase:', error);
+            alert('La transacción se guardó localmente pero no en la base de datos. Intenta nuevamente cuando tengas conexión.');
+        }
+    } else if (usuarioActual && usuarioActual.id) {
+        alert('No se pudo conectar con la base de datos. La transacción se guardará localmente.');
+    }
+
+    state.transacciones.push(transaccionParaEstado);
+
+    conceptoInput.value = '';
+    montoInput.value = '';
+    if (titulo) {
+        titulo.textContent = 'Registrar Transacción';
+    }
+
+    transaccionConfirmandoEliminarId = null;
+
+    actualizarVistas();
+    guardarDatos();
+}
+
+function prepararEdicionTransaccion(id) {
+    const transaccion = state.transacciones.find(t => t.id === id);
+    if (!transaccion) {
+        return;
+    }
+
+    transaccionConfirmandoEliminarId = null;
+    transaccionEditandoId = id;
+    transaccionEditandoOriginal = { ...transaccion };
+
+    const fechaInput = document.getElementById('trans-fecha');
+    const tipoSelect = document.getElementById('trans-tipo');
+    const conceptoInput = document.getElementById('trans-concepto');
+    const monedaSelect = document.getElementById('trans-moneda');
+    const montoInput = document.getElementById('trans-monto');
+    const categoriaSelect = document.getElementById('trans-categoria');
+    const titulo = document.getElementById('trans-form-title');
+    const submitBtn = document.getElementById('trans-submit');
+    const cancelarBtn = document.getElementById('trans-cancelar');
+
+    if (fechaInput) {
+        fechaInput.value = transaccion.fecha || new Date().toISOString().split('T')[0];
+    }
+    if (tipoSelect) {
+        tipoSelect.value = transaccion.tipo || 'ingreso';
+        actualizarCategorias();
+    }
+    if (conceptoInput) {
+        conceptoInput.value = transaccion.concepto ?? '';
+        setTimeout(() => {
+            conceptoInput.focus();
+            if (typeof conceptoInput.select === 'function') {
+                conceptoInput.select();
+            }
+        }, 0);
+    }
+    if (monedaSelect) {
+        monedaSelect.value = transaccion.moneda || 'CRC';
+    }
+    if (montoInput) {
+        montoInput.value = transaccion.monto ?? '';
+    }
+    if (categoriaSelect) {
+        categoriaSelect.value = transaccion.categoria || 'otro';
+    }
+    if (titulo) {
+        titulo.textContent = 'Editar Transacción';
+    }
+    if (submitBtn) {
+        submitBtn.textContent = '💾 Guardar Cambios';
+    }
+    if (cancelarBtn) {
+        cancelarBtn.style.display = 'inline-flex';
+    }
+
+    actualizarListaTransacciones();
+}
+
+function cancelarEdicionTransaccion() {
+    transaccionEditandoId = null;
+    transaccionEditandoOriginal = null;
+    transaccionConfirmandoEliminarId = null;
+
+    const fechaInput = document.getElementById('trans-fecha');
+    const tipoSelect = document.getElementById('trans-tipo');
+    const conceptoInput = document.getElementById('trans-concepto');
+    const monedaSelect = document.getElementById('trans-moneda');
+    const montoInput = document.getElementById('trans-monto');
+    const categoriaSelect = document.getElementById('trans-categoria');
+    const titulo = document.getElementById('trans-form-title');
+    const submitBtn = document.getElementById('trans-submit');
+    const cancelarBtn = document.getElementById('trans-cancelar');
+
+    if (fechaInput) {
+        fechaInput.value = new Date().toISOString().split('T')[0];
+    }
+    if (tipoSelect) {
+        tipoSelect.value = 'ingreso';
+        actualizarCategorias();
+    }
+    if (conceptoInput) conceptoInput.value = '';
+    if (monedaSelect) monedaSelect.value = 'CRC';
+    if (montoInput) montoInput.value = '';
+    if (categoriaSelect) {
+        categoriaSelect.value = 'venta';
+    }
+    if (titulo) titulo.textContent = 'Registrar Transacción';
+    if (submitBtn) submitBtn.textContent = '➕ Agregar Transacción';
+    if (cancelarBtn) cancelarBtn.style.display = 'none';
+
+    actualizarListaTransacciones();
+}
+
+function mostrarAdvertenciaEliminarTransaccion(id) {
+    if (transaccionConfirmandoEliminarId === id) {
+        transaccionConfirmandoEliminarId = null;
     } else {
-        alert('Por favor completa todos los campos requeridos');
+        transaccionConfirmandoEliminarId = id;
+    }
+    actualizarListaTransacciones();
+}
+
+function cancelarEliminacionTransaccion() {
+    if (transaccionConfirmandoEliminarId !== null) {
+        transaccionConfirmandoEliminarId = null;
+        actualizarListaTransacciones();
     }
 }
 
-function eliminarTransaccion(id) {
-    if (confirm('¿Estás seguro de eliminar esta transacción?')) {
-        state.transacciones = state.transacciones.filter(t => t.id !== id);
-        actualizarVistas();
-        guardarDatos();
+function confirmarEliminacionTransaccion(id) {
+    eliminarTransaccion(id);
+}
+
+async function eliminarTransaccion(id) {
+    const indice = state.transacciones.findIndex(t => t.id === id);
+    if (indice === -1) {
+        return;
     }
+
+    const cliente = obtenerClienteSupabase();
+    const puedeSincronizar = cliente && usuarioActual && usuarioActual.id;
+
+    if (puedeSincronizar) {
+        try {
+            const { error } = await cliente
+                .from('flujo_caja')
+                .delete()
+                .eq('id', id)
+                .eq('usuario_id', usuarioActual.id);
+
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Error al eliminar transacción en Supabase:', error);
+            alert('No se pudo eliminar la transacción de la base de datos. Intenta nuevamente.');
+            return;
+        }
+    }
+
+    if (transaccionEditandoId === id) {
+        cancelarEdicionTransaccion();
+    } else {
+        transaccionConfirmandoEliminarId = null;
+    }
+
+    state.transacciones.splice(indice, 1);
+    actualizarVistas();
+    guardarDatos();
 }
 
 function actualizarCategorias() {
-    const tipo = document.getElementById('trans-tipo').value;
+    const tipoSelect = document.getElementById('trans-tipo');
     const select = document.getElementById('trans-categoria');
-    
+
+    if (!tipoSelect || !select) {
+        return;
+    }
+
+    const tipo = tipoSelect.value;
+
     if (tipo === 'ingreso') {
         select.innerHTML = `
             <option value="venta">Venta</option>
@@ -435,6 +1460,9 @@ function calcularPuntoEquilibrio() {
 
 // Actualización de Vistas
 function actualizarVistas() {
+    if (!document.getElementById('lista-productos')) {
+        return;
+    }
     actualizarListaProductos();
     actualizarListaCostos();
     actualizarListaTransacciones();
@@ -444,7 +1472,18 @@ function actualizarVistas() {
 
 function actualizarListaProductos() {
     const lista = document.getElementById('lista-productos');
-    
+
+    if (!lista) {
+        return;
+    }
+
+    if (productoConfirmandoEliminarId !== null) {
+        const existe = state.productos.some(p => p.id === productoConfirmandoEliminarId);
+        if (!existe) {
+            productoConfirmandoEliminarId = null;
+        }
+    }
+
     if (state.productos.length === 0) {
         lista.innerHTML = `
             <div class="empty-state">
@@ -463,17 +1502,24 @@ function actualizarListaProductos() {
     lista.innerHTML = state.productos.map(producto => {
         const margen = calcularMargenContribucion(producto);
         const margenPorcentaje = calcularMargenPorcentaje(producto);
-        
+        const editando = productoEditandoId === producto.id;
+        const confirmandoEliminacion = productoConfirmandoEliminarId === producto.id;
+        const clasesTarjeta = [
+            'product-card',
+            editando ? 'editing' : '',
+            confirmandoEliminacion ? 'confirming-delete' : ''
+        ].filter(Boolean).join(' ');
+
         return `
-            <div class="product-card">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div style="flex: 1;">
-                        <div style="margin-bottom: 10px;">
-                            <span style="font-size: 18px; font-weight: 600; color: #2d3748;">${producto.nombre}</span>
+            <div class="${clasesTarjeta}">
+                <div class="product-card-header">
+                    <div class="product-card-main">
+                        <div class="product-card-title">
+                            <span class="product-name">${producto.nombre}</span>
                             <span class="badge badge-blue">${producto.tipo}</span>
                             <span class="badge badge-purple">${monedas[producto.moneda].simbolo} ${producto.moneda}</span>
                         </div>
-                        <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                        <div class="product-metrics-grid">
                             <div class="info-row">
                                 <span class="info-label">Costo:</span>
                                 <span class="info-value">${formatearMoneda(producto.costoUnitario, producto.moneda)}</span>
@@ -484,7 +1530,7 @@ function actualizarListaProductos() {
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Margen:</span>
-                                <span class="info-value" style="color: #48bb78;">${formatearMoneda(margen)} (${margenPorcentaje.toFixed(1)}%)</span>
+                                <span class="info-value info-value--positive">${formatearMoneda(margen)} (${margenPorcentaje.toFixed(1)}%)</span>
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Unidades:</span>
@@ -492,14 +1538,33 @@ function actualizarListaProductos() {
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Total:</span>
-                                <span class="info-value" style="color: #667eea;">${formatearMoneda(producto.precioVenta * producto.unidadesVendidas, producto.moneda)}</span>
+                                <span class="info-value info-value--highlight">${formatearMoneda(producto.precioVenta * producto.unidadesVendidas, producto.moneda)}</span>
                             </div>
                         </div>
                     </div>
-                    <button class="delete-btn" onclick="eliminarProducto(${producto.id})">
-                        🗑️
-                    </button>
+                    <div class="product-actions">
+                        <button class="product-action-btn edit-btn" onclick="prepararEdicionProducto(${producto.id})" title="Editar producto">
+                            <span class="product-action-icon">✏️</span>
+                            <span>Editar</span>
+                        </button>
+                        <button class="product-action-btn delete-btn" onclick="mostrarAdvertenciaEliminarProducto(${producto.id})" title="Eliminar producto">
+                            <span class="product-action-icon">🗑️</span>
+                            <span>Eliminar</span>
+                        </button>
+                    </div>
                 </div>
+                ${confirmandoEliminacion ? `
+                    <div class="delete-warning">
+                        <div class="warning-content">
+                            <span class="warning-icon">⚠️</span>
+                            <span class="warning-text">¿Deseas eliminar este registro? Esta acción no se puede deshacer.</span>
+                        </div>
+                        <div class="warning-actions">
+                            <button class="cancel-delete-btn" type="button" onclick="cancelarEliminacionProducto()">Cancelar</button>
+                            <button class="confirm-delete-btn" type="button" onclick="confirmarEliminacionProducto(${producto.id})">Eliminar</button>
+                        </div>
+                    </div>
+                ` : ''}
             </div>
         `;
     }).join('');
@@ -507,10 +1572,22 @@ function actualizarListaProductos() {
 
 function actualizarListaCostos() {
     const lista = document.getElementById('lista-costos');
-    const total = calcularCostosFijosTotales();
-    
-    document.getElementById('total-costos-fijos').textContent = formatearMoneda(total);
-    
+    if (!lista) {
+        return;
+    }
+
+    const totalElemento = document.getElementById('total-costos-fijos');
+    if (totalElemento) {
+        totalElemento.textContent = formatearMoneda(calcularCostosFijosTotales());
+    }
+
+    if (costoFijoConfirmandoEliminarId !== null) {
+        const existe = state.costosFijos.some(c => c.id === costoFijoConfirmandoEliminarId);
+        if (!existe) {
+            costoFijoConfirmandoEliminarId = null;
+        }
+    }
+
     if (state.costosFijos.length === 0) {
         lista.innerHTML = `
             <div class="empty-state">
@@ -524,42 +1601,90 @@ function actualizarListaCostos() {
         `;
         return;
     }
-    
-    lista.innerHTML = state.costosFijos.map(costo => `
-        <div class="cost-card">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="flex: 1;">
-                    <div style="margin-bottom: 10px;">
-                        <span style="font-size: 18px; font-weight: 600; color: #2d3748;">${costo.concepto}</span>
-                        <span class="badge badge-purple">${monedas[costo.moneda].simbolo} ${costo.moneda}</span>
-                        <span class="badge badge-blue">${costo.frecuencia}</span>
-                    </div>
-                    <div style="display: flex; gap: 30px;">
-                        <div>
-                            <span class="info-label">Monto:</span>
-                            <span class="info-value">${formatearMoneda(costo.monto, costo.moneda)}</span>
+
+    lista.innerHTML = state.costosFijos.map(costo => {
+        const editando = costoFijoEditandoId === costo.id;
+        const confirmando = costoFijoConfirmandoEliminarId === costo.id;
+        const clasesTarjeta = [
+            'cost-card',
+            editando ? 'editing' : '',
+            confirmando ? 'confirming-delete' : ''
+        ].filter(Boolean).join(' ');
+        const montoMensual = costo.frecuencia === 'anual' ? costo.monto / 12 : costo.monto;
+
+        return `
+            <div class="${clasesTarjeta}">
+                <div class="product-card-header">
+                    <div class="product-card-main">
+                        <div class="product-card-title">
+                            <span class="product-name">${costo.concepto}</span>
+                            <span class="badge badge-purple">${monedas[costo.moneda].simbolo} ${costo.moneda}</span>
+                            <span class="badge badge-blue">${costo.frecuencia}</span>
                         </div>
-                        ${costo.frecuencia === 'anual' ? `
+                        <div class="product-metrics-grid">
                             <div>
-                                <span class="info-label">Mensual:</span>
-                                <span class="info-value" style="color: #48bb78;">${formatearMoneda(costo.monto / 12, costo.moneda)}</span>
+                                <span class="info-label">${costo.frecuencia === 'anual' ? 'Monto anual' : 'Monto mensual'}</span>
+                                <p class="info-value">${formatearMoneda(costo.monto, costo.moneda)}</p>
                             </div>
-                        ` : ''}
+                            <div>
+                                <span class="info-label">Monto mensual</span>
+                                <p class="info-value ${costo.frecuencia === 'anual' ? 'info-value--highlight' : ''}">${formatearMoneda(montoMensual, costo.moneda)}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="product-actions">
+                        <button class="product-action-btn edit-btn" type="button" onclick="prepararEdicionCostoFijo(${costo.id})">
+                            <span class="product-action-icon">✏️</span>
+                            <span>Editar</span>
+                        </button>
+                        <button class="product-action-btn delete-btn" type="button" onclick="mostrarAdvertenciaEliminarCostoFijo(${costo.id})">
+                            <span class="product-action-icon">🗑️</span>
+                            <span>Eliminar</span>
+                        </button>
                     </div>
                 </div>
-                <button class="delete-btn" onclick="eliminarCostoFijo(${costo.id})">
-                    🗑️
-                </button>
+                ${confirmando ? `
+                    <div class="delete-warning">
+                        <div class="warning-content">
+                            <span class="warning-icon">⚠️</span>
+                            <span class="warning-text">¿Deseas eliminar este registro? Esta acción no se puede deshacer.</span>
+                        </div>
+                        <div class="warning-actions">
+                            <button class="cancel-delete-btn" type="button" onclick="cancelarEliminacionCostoFijo()">Cancelar</button>
+                            <button class="confirm-delete-btn" type="button" onclick="confirmarEliminacionCostoFijo(${costo.id})">Eliminar</button>
+                        </div>
+                    </div>
+                ` : ''}
             </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 function actualizarListaTransacciones() {
     const lista = document.getElementById('lista-transacciones');
-    const mes = document.getElementById('mes-seleccionado').value;
-    const transaccionesMes = state.transacciones.filter(t => t.fecha.startsWith(mes));
-    
+    const mesInput = document.getElementById('mes-seleccionado');
+
+    if (!lista || !mesInput) {
+        return;
+    }
+
+    let mes = mesInput.value;
+    if (!mes) {
+        mes = new Date().toISOString().slice(0, 7);
+        mesInput.value = mes;
+    }
+
+    if (transaccionConfirmandoEliminarId !== null) {
+        const existe = state.transacciones.some(t => t.id === transaccionConfirmandoEliminarId);
+        if (!existe) {
+            transaccionConfirmandoEliminarId = null;
+        }
+    }
+
+    const transaccionesMes = state.transacciones
+        .filter(t => (t.fecha || '').startsWith(mes))
+        .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+
     if (transaccionesMes.length === 0) {
         lista.innerHTML = `
             <div class="empty-state">
@@ -573,37 +1698,72 @@ function actualizarListaTransacciones() {
         `;
         return;
     }
-    
+
     lista.innerHTML = transaccionesMes
-        .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
-        .map(trans => `
-            <div class="transaction-card">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex: 1;">
-                        <div style="margin-bottom: 10px;">
-                            <span style="font-size: 18px; font-weight: 600; color: #2d3748;">${trans.concepto}</span>
-                            <span class="badge ${trans.tipo === 'ingreso' ? 'badge-green' : 'badge-red'}">${trans.tipo}</span>
-                            <span class="badge badge-blue">${trans.categoria}</span>
+        .map(trans => {
+            const editando = transaccionEditandoId === trans.id;
+            const confirmando = transaccionConfirmandoEliminarId === trans.id;
+            const clasesTarjeta = [
+                'transaction-card',
+                editando ? 'editing' : '',
+                confirmando ? 'confirming-delete' : ''
+            ].filter(Boolean).join(' ');
+
+            const monedaInfo = monedas[trans.moneda] || { simbolo: '', nombre: trans.moneda };
+            const signo = trans.tipo === 'ingreso' ? '+' : '-';
+            const montoConvertido = convertirMoneda(trans.monto, trans.moneda, state.moneda);
+
+            return `
+                <div class="${clasesTarjeta}">
+                    <div class="product-card-header">
+                        <div class="product-card-main">
+                            <div class="product-card-title">
+                                <span class="product-name">${trans.concepto}</span>
+                                <span class="badge ${trans.tipo === 'ingreso' ? 'badge-green' : 'badge-red'}">${trans.tipo}</span>
+                                <span class="badge badge-purple">${monedaInfo.simbolo} ${trans.moneda}</span>
+                                <span class="badge badge-blue">${trans.categoria}</span>
+                            </div>
+                            <div class="product-metrics-grid">
+                                <div class="info-row">
+                                    <span class="info-label">Fecha</span>
+                                    <span class="info-value">${trans.fecha}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Monto</span>
+                                    <span class="info-value ${trans.tipo === 'ingreso' ? 'info-value--positive' : 'info-value--negative'}">${signo}${formatearMoneda(trans.monto, trans.moneda)}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">En ${state.moneda}</span>
+                                    <span class="info-value">${signo}${formatearMoneda(Math.abs(montoConvertido))}</span>
+                                </div>
+                            </div>
                         </div>
-                        <div style="display: flex; gap: 30px;">
-                            <div>
-                                <span class="info-label">Fecha:</span>
-                                <span class="info-value">${trans.fecha}</span>
-                            </div>
-                            <div>
-                                <span class="info-label">Monto:</span>
-                                <span class="info-value" style="color: ${trans.tipo === 'ingreso' ? '#48bb78' : '#f56565'};">
-                                    ${trans.tipo === 'ingreso' ? '+' : '-'}${formatearMoneda(trans.monto, trans.moneda)}
-                                </span>
-                            </div>
+                        <div class="product-actions transaction-actions">
+                            <button class="product-action-btn edit-btn" type="button" onclick="prepararEdicionTransaccion(${trans.id})">
+                                <span class="product-action-icon">✏️</span>
+                                <span>Editar</span>
+                            </button>
+                            <button class="product-action-btn delete-btn" type="button" onclick="mostrarAdvertenciaEliminarTransaccion(${trans.id})">
+                                <span class="product-action-icon">🗑️</span>
+                                <span>Eliminar</span>
+                            </button>
                         </div>
                     </div>
-                    <button class="delete-btn" onclick="eliminarTransaccion(${trans.id})">
-                        🗑️
-                    </button>
+                    ${confirmando ? `
+                        <div class="delete-warning">
+                            <div class="warning-content">
+                                <span class="warning-icon">⚠️</span>
+                                <span class="warning-text">¿Deseas eliminar esta transacción? Esta acción no se puede deshacer.</span>
+                            </div>
+                            <div class="warning-actions">
+                                <button class="cancel-delete-btn" type="button" onclick="cancelarEliminacionTransaccion()">Cancelar</button>
+                                <button class="confirm-delete-btn" type="button" onclick="confirmarEliminacionTransaccion(${trans.id})">Eliminar</button>
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 }
 
 function actualizarFlujoCaja() {
@@ -863,13 +2023,16 @@ function actualizarGraficoEquilibrio() {
 // Gestión de Datos
 function guardarDatos() {
     try {
-        localStorage.setItem('sistemaFinanciero', JSON.stringify(state));
-        
+        const clave = obtenerClaveAlmacenamiento();
+        localStorage.setItem(clave, JSON.stringify(state));
+
         const loading = document.getElementById('loading');
-        loading.style.display = 'block';
-        setTimeout(() => {
-            loading.style.display = 'none';
-        }, 2000);
+        if (loading) {
+            loading.style.display = 'block';
+            setTimeout(() => {
+                loading.style.display = 'none';
+            }, 2000);
+        }
     } catch (e) {
         console.error('Error al guardar:', e);
     }
@@ -877,15 +2040,36 @@ function guardarDatos() {
 
 function cargarDatos() {
     try {
-        const datos = localStorage.getItem('sistemaFinanciero');
+        const clave = obtenerClaveAlmacenamiento();
+        const datos = localStorage.getItem(clave);
+        const estadoBase = crearEstadoInicial();
         if (datos) {
-            state = JSON.parse(datos);
-            document.getElementById('selectMoneda').value = state.moneda;
-            document.getElementById('monedaActual').textContent = `${monedas[state.moneda].simbolo} ${state.moneda}`;
-            document.getElementById('tasaCambio').value = state.tasaCambio;
+            const recuperado = JSON.parse(datos);
+            state = {
+                ...estadoBase,
+                ...recuperado,
+                productos: Array.isArray(recuperado.productos) ? recuperado.productos : estadoBase.productos,
+                costosFijos: Array.isArray(recuperado.costosFijos) ? recuperado.costosFijos : estadoBase.costosFijos,
+                transacciones: Array.isArray(recuperado.transacciones) ? recuperado.transacciones : estadoBase.transacciones
+            };
+        } else {
+            state = estadoBase;
+        }
+        const selectorMoneda = document.getElementById('selectMoneda');
+        if (selectorMoneda) {
+            selectorMoneda.value = state.moneda;
+        }
+        const etiquetaMoneda = document.getElementById('monedaActual');
+        if (etiquetaMoneda) {
+            etiquetaMoneda.textContent = `${monedas[state.moneda].simbolo} ${state.moneda}`;
+        }
+        const tasaCambioInput = document.getElementById('tasaCambio');
+        if (tasaCambioInput) {
+            tasaCambioInput.value = state.tasaCambio;
         }
     } catch (e) {
         console.error('Error al cargar:', e);
+        state = crearEstadoInicial();
     }
 }
 
