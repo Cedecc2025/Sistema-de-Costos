@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test:login": "node tests/login.spec.js"
+    "test:login": "node tests/login.spec.js",
+    "check:conflicts": "node scripts/check-conflicts.js"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"
