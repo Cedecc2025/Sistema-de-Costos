@@ -214,7 +214,7 @@
                 <h2 style="color: #2d3748; margin-bottom: 20px;">Flujo de Caja</h2>
                 
                 <div style="background: linear-gradient(135deg, #f0fff4 0%, #dcfce7 100%); padding: 25px; border-radius: 15px; margin-bottom: 30px;">
-                    <h3 style="color: #4a5568; margin-bottom: 20px;">Registrar Transacción</h3>
+                    <h3 id="trans-form-title" style="color: #4a5568; margin-bottom: 20px;">Agregar Transacción</h3>
                     <div class="form-row">
                         <div>
                             <label>Fecha</label>
@@ -251,9 +251,14 @@
                             </select>
                         </div>
                     </div>
-                    <button class="btn btn-success" onclick="agregarTransaccion()">
-                        ➕ Agregar Transacción
-                    </button>
+                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                        <button id="trans-submit" class="btn btn-success" type="button" onclick="agregarTransaccion()">
+                            ➕ Agregar Transacción
+                        </button>
+                        <button id="trans-cancelar" class="btn btn-secondary" type="button" onclick="cancelarEdicionTransaccion()" style="display: none;">
+                            ✖️ Cancelar edición
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="form-group">
