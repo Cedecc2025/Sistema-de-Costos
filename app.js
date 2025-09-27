@@ -206,6 +206,69 @@ async function sincronizarFlujoCajaDesdeSupabase() {
     }
 }
 
+async function ejecutarRefrescoModulo({ botonId, sincronizadores = [] } = {}) {
+    const boton = botonId ? document.getElementById(botonId) : null;
+    const contenidoOriginal = boton ? boton.innerHTML : '';
+
+    if (boton) {
+        boton.disabled = true;
+        boton.classList.add('is-loading');
+        boton.innerHTML = '⏳ Actualizando...';
+    }
+
+    try {
+        cargarDatos();
+        for (const sincronizador of sincronizadores) {
+            if (typeof sincronizador === 'function') {
+                // eslint-disable-next-line no-await-in-loop
+                await sincronizador();
+            }
+        }
+    } catch (error) {
+        console.error('Error al refrescar los datos:', error);
+        alert('❌ No se pudo refrescar los datos. Intenta nuevamente.');
+    } finally {
+        if (boton) {
+            boton.disabled = false;
+            boton.classList.remove('is-loading');
+            boton.innerHTML = contenidoOriginal;
+        }
+        actualizarVistas();
+    }
+}
+
+async function refrescarProductos() {
+    await ejecutarRefrescoModulo({
+        botonId: 'btn-refrescar-productos',
+        sincronizadores: [sincronizarProductosDesdeSupabase]
+    });
+}
+
+async function refrescarCostosFijos() {
+    await ejecutarRefrescoModulo({
+        botonId: 'btn-refrescar-costos',
+        sincronizadores: [sincronizarCostosFijosDesdeSupabase]
+    });
+}
+
+async function refrescarFlujoCaja() {
+    await ejecutarRefrescoModulo({
+        botonId: 'btn-refrescar-flujo',
+        sincronizadores: [sincronizarFlujoCajaDesdeSupabase]
+    });
+}
+
+async function refrescarAnalisis() {
+    await ejecutarRefrescoModulo({
+        botonId: 'btn-refrescar-analisis',
+        sincronizadores: [
+            sincronizarProductosDesdeSupabase,
+            sincronizarCostosFijosDesdeSupabase,
+            sincronizarFlujoCajaDesdeSupabase
+        ]
+    });
+}
+
 // Estado Global
 function crearEstadoInicial() {
     return {
